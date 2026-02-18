@@ -87,13 +87,6 @@ export default function Home() {
     };
     document.addEventListener("mousedown", handleClickOutside);
 
-    // Scroll listener for sticky header
-    const mainEl = mainRef.current;
-    const handleScroll = () => {
-      if (mainEl) setHeaderScrolled(mainEl.scrollTop > 60);
-    };
-    mainEl?.addEventListener('scroll', handleScroll);
-
     const saved = localStorage.getItem('analysis_history');
     if (saved) setHistory(JSON.parse(saved));
 
@@ -101,9 +94,17 @@ export default function Home() {
       clearInterval(pollInterval);
       clearInterval(countdownInterval);
       document.removeEventListener("mousedown", handleClickOutside);
-      mainEl?.removeEventListener('scroll', handleScroll);
     };
   }, [fetchMarketData]);
+
+  // Scroll listener — 별도 effect로 분리해 mainRef 마운트 타이밍 보장
+  useEffect(() => {
+    const mainEl = mainRef.current;
+    if (!mainEl) return;
+    const handleScroll = () => setHeaderScrolled(mainEl.scrollTop > 60);
+    mainEl.addEventListener('scroll', handleScroll);
+    return () => mainEl.removeEventListener('scroll', handleScroll);
+  });
 
   const saveHistory = (records: AnalysisRecord[]) => {
     setHistory(records);
@@ -152,7 +153,8 @@ export default function Home() {
         }
       }
 
-      if (fullContent) {
+      // 에러 응답(⚠️)은 히스토리에 저장하지 않음
+      if (fullContent && !fullContent.trimStart().startsWith('> ⚠️')) {
         const newRecord: AnalysisRecord = {
           id: Date.now().toString(),
           query: userQuery,
@@ -194,7 +196,7 @@ export default function Home() {
   };
 
   const currentRecord = history.find(r => r.id === activeHistoryId);
-  const selectedModelInfo = MODELS.find(m => m.id === selectedModel)!;
+  const selectedModelInfo = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
 
   return (
     <div className="min-h-screen bg-white text-zinc-900 font-sans selection:bg-emerald-100 selection:text-emerald-900 tracking-tight flex flex-col">

@@ -29,7 +29,7 @@ MACRO_ANALYSIS_PROMPT = PromptTemplate(
 
 ---
 
-### [제급된 데이터]
+### [제공된 데이터]
 **1. 시장 실시간 데이터:** {market_data}
 **2. 주요 뉴스 및 신호:** {news_summary} / {macro_signals}
 **3. 통화 정책:** 한국은행({bok_policy}), 미 연준({fed_policy})
