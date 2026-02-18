@@ -1,0 +1,41 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: 'Goldman Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-serif: 'Goldman Sans', ui-serif, system-ui, serif;
+  --font-mono: 'Goldman Sans', ui-monospace, system-ui, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+* {
+  font-family: 'Goldman Sans', 'Pretendard', sans-serif !important;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: 'Goldman Sans', 'Pretendard', sans-serif !important;
+  font-weight: 450;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+strong,
+b {
+  font-weight: 700 !important;
+  color: #000 !important;
+}
