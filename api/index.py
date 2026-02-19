@@ -13,8 +13,9 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.output_parsers import StrOutputParser
-from ._prompts import MACRO_ANALYSIS_PROMPT
-import json
+import sys
+sys.path.append(os.path.dirname(__file__))
+import prompts_api
 
 # Load environment variables
 load_dotenv()
@@ -81,44 +82,31 @@ def fetch_market_data_internal():
     data = []
     signals = []
 
-    for symbol, name in symbols.items():
-        try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1mo")
-
-            if not hist.empty:
+    try:
+        # yfinance download로 벌크 패치 (속도 개선 및 Vercel 타임아웃 방지)
+        ticker_list = list(symbols.keys())
+        df = yf.download(ticker_list, period="2d", interval="1d", group_by='ticker', silent=True)
+        
+        for symbol, name in symbols.items():
+            try:
+                if symbol not in df.columns.levels[0]: continue
+                hist = df[symbol]
+                if hist.empty or len(hist) < 1: continue
+                
                 current = hist['Close'].iloc[-1]
                 prev = hist['Close'].iloc[-2] if len(hist) > 1 else current
-                change = ((current - prev) / prev) * 100
-
-                ma5 = hist['Close'].tail(5).mean()
-                ma20 = hist['Close'].tail(20).mean()
-
-                momentum_signal = "Neutral"
-                if current > ma5 and current > ma20:
-                    momentum_signal = "Bullish (Short-term)"
-                elif current < ma5 and current < ma20:
-                    momentum_signal = "Bearish (Short-term)"
-
+                change = ((current - prev) / prev) * 100 if prev != 0 else 0
+                
                 data.append({
                     "symbol": symbol,
                     "name": name,
-                    "price": round(current, 2),
-                    "change_percent": round(change, 2),
-                    "momentum": momentum_signal,
+                    "price": round(float(current), 2),
+                    "change_percent": round(float(change), 2)
                 })
-        except Exception as e:
-            print(f"Error fetching {symbol}: {e}")
-
-    # Yield Curve signal
-    try:
-        us10y = next((x for x in data if x['symbol'] == '^TNX'), None)
-        us13w = next((x for x in data if x['symbol'] == '^IRX'), None)
-        if us10y and us13w:
-            spread = us10y['price'] - us13w['price']
-            signals.append(f"Yield Curve (10Y-13W): {spread:.2f}bp ({'Inverted!' if spread < 0 else 'Normal'})")
-    except Exception:
-        pass
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"Error in batch fetching: {e}")
 
     return {"data": data, "signals": signals}
 
@@ -406,7 +394,7 @@ async def analyze_macro(request: AnalysisRequest):
         for attempt, (model_id, model_label) in enumerate(model_candidates):
             is_fallback = attempt > 0
             llm = model_builder(model_id)
-            chain = MACRO_ANALYSIS_PROMPT | llm | StrOutputParser()
+            chain = prompts_api.MACRO_ANALYSIS_PROMPT | llm | StrOutputParser()
             print(f"[LLM] Streaming with {model_label} (attempt {attempt + 1})...")
 
             # fallback 시 사용자에게 알림
