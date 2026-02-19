@@ -12,7 +12,6 @@ cd ..
 
 # Start Frontend
 echo "Starting Frontend Server on port 3000..."
-cd frontend
 npm run dev &
 FRONTEND_PID=$!
 
