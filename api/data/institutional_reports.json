@@ -1,0 +1,29 @@
+{
+    "last_updated": "2024-02-18",
+    "reports": [
+        {
+            "institution": "IMF",
+            "title": "World Economic Outlook (October 2024)",
+            "summary": "Global growth stable but underwhelming at 3.2% for 2024/25. Disinflation continues but services prices are sticky. Risks tilted to the downside.",
+            "content": "Global growth is expected to remain stable yet underwhelming. At 3.2 percent in 2024 and 2025, the growth projection is virtually unchanged from those in the April 2024 and July 2024 World Economic Outlook Update. As global disinflation continues, services price inflation remains elevated in many regions, pointing to the importance of remaining vigilant. Shifting gears is needed to ensure that fiscal policy is on a sustainable path and to rebuild fiscal buffers. The balance of risks is tilted to the downside, with monetary policy easing amid continued disinflation."
+        },
+        {
+            "institution": "Goldman Sachs",
+            "title": "2025 Global Economic Outlook",
+            "summary": "GDP forecast 2.7% in 2025. US outperformance (2.5% growth). Central banks to continue rate cuts as inflation trends down.",
+            "content": "Worldwide GDP is forecast to expand 2.7% on an annual average basis in 2025—roughly in line with the growth rate in 2024 and only slightly below the 2011-2019 average. The U.S. economy continues to outperform. U.S. GDP is projected to increase 2.5% in 2025, supported by solid real income growth and a still-solid labor market. The world’s largest economy is expected to grow faster than other developed-market countries. Inflation has continued to trend down, and in most cases is within striking distance of central bank targets. We expect the Fed, ECB, and other central banks to continue cutting rates through 2025."
+        },
+        {
+            "institution": "Bank of Korea",
+            "title": "Economic Outlook (November 2024)",
+            "summary": "Growth forecast lowered to 2.2% (2024) and 1.9% (2025). Cooling export rally and weak domestic demand.",
+            "content": "The Bank of Korea revised its 2024 GDP growth forecast downward to 2.2% from 2.4%, and its 2025 forecast to 1.9% from 2.1%. This reflects slower-than-expected export growth and intensifying competition in key industries. Growth is expected to slow as the export rally cools and domestic demand remains sluggish. Strengthening trade protectionism and volatility in global trade policies present renewed risks to the outlook. Inflation is projected to stabilize around the 2.0% target in the coming year, with 2025 inflation forecast at 1.9%."
+        },
+        {
+            "institution": "Federal Reserve",
+            "title": "Monetary Policy Report to Congress (February 2025)",
+            "summary": "Inflation moderating but still above 2%. FOMC lowered rates by 100bps in late 2024. Stable labor market.",
+            "content": "Inflation moderated a little further last year after having slowed notably in 2023, but it remains somewhat above the FOMC's objective of 2 percent. The labor market appears to have stabilized following a period of easing, with the unemployment rate flattening out at a relatively low level. As labor market tightness continued to ease and inflation moderated a bit further, the FOMC lowered the target range for the policy rate by a cumulative 100 basis points over its September, November, and December meetings. Real gross domestic product (GDP) increased solidly last year, supported by strength in consumer spending. The core PCE price index rose 2.8 percent last year."
+        }
+    ]
+}
