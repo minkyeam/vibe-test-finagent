@@ -52,9 +52,15 @@ class MarketData(BaseModel):
     name: str
 
 
+@app.get("/api/health")
+@app.get("/health")
 @app.get("/")
 def read_root():
-    return {"message": "Financial Macro Agent API is running"}
+    return {
+        "status": "online",
+        "message": "Financial Macro Agent API is running",
+        "timestamp": datetime.now().isoformat()
+    }
 
 
 def fetch_market_data_internal():
@@ -210,16 +216,26 @@ def _get_cached_market_data() -> dict:
 
 
 @app.get("/api/market-data")
+@app.get("/market-data")
 def get_market_data():
-    cached = _get_cached_market_data()
-    return {"data": cached["data"]}
+    try:
+        cached = _get_cached_market_data()
+        return {"data": cached["data"]}
+    except Exception as e:
+        print(f"[API ERROR] market-data: {e}")
+        return {"data": [], "error": str(e)}
 
 
 @app.get("/api/liquidity")
+@app.get("/liquidity")
 def get_liquidity_data():
     """연준/재무부 유동성 지표 반환."""
-    data = _get_cached_liquidity()
-    return {"data": data}
+    try:
+        data = _get_cached_liquidity()
+        return {"data": data}
+    except Exception as e:
+        print(f"[API ERROR] liquidity: {e}")
+        return {"data": [], "error": str(e)}
 
 
 class AnalysisRequest(BaseModel):
