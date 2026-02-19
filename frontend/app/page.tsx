@@ -10,6 +10,15 @@ interface MarketData {
   change_percent: number;
 }
 
+interface LiquidityItem {
+  series: string;
+  name: string;
+  value: number;
+  unit: string;
+  date: string;
+  desc: string;
+}
+
 interface AnalysisRecord {
   id: string;
   query: string;
@@ -36,8 +45,12 @@ const MODELS = [
   { id: 'claude' as AIModel, name: 'Claude', fullName: 'Anthropic Claude', active: true, desc: '3.5 Sonnet' },
 ];
 
+interface ToastItem { id: string; message: string; type: 'warning' | 'info'; }
+interface IssueLogItem { id: string; timestamp: string; message: string; type: 'warning' | 'info'; }
+
 export default function Home() {
   const [data, setData] = useState<MarketData[]>([]);
+  const [liquidityData, setLiquidityData] = useState<LiquidityItem[]>([]);
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
@@ -50,6 +63,8 @@ export default function Home() {
   const [currentQuery, setCurrentQuery] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [headerScrolled, setHeaderScrolled] = useState(false);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const [issueLog, setIssueLog] = useState<IssueLogItem[]>([]);
   const mainRef = useRef<HTMLElement>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -57,6 +72,15 @@ export default function Home() {
   const queryRef = useRef<HTMLTextAreaElement>(null);
   const [dataFetchedAt, setDataFetchedAt] = useState<string>('');
   const [refreshCountdown, setRefreshCountdown] = useState<number>(30);
+  const toastIdCounter = useRef(0);
+
+  const pushToast = useCallback((message: string, type: 'warning' | 'info' = 'warning') => {
+    const id = `toast-${Date.now()}-${++toastIdCounter.current}`;
+    const timestamp = new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setToasts(prev => [...prev, { id, message, type }]);
+    setIssueLog(prev => [{ id, timestamp, message, type }, ...prev]);
+    setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 5000);
+  }, []);
 
   const fetchMarketData = useCallback(() => {
     fetch('/api/market-data')
@@ -73,9 +97,20 @@ export default function Home() {
       .catch(console.error);
   }, []);
 
+  const fetchLiquidityData = useCallback(() => {
+    fetch('/api/liquidity')
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.data) setLiquidityData(json.data);
+      })
+      .catch(console.error);
+  }, []);
+
   useEffect(() => {
     fetchMarketData();
+    fetchLiquidityData();
     const pollInterval = setInterval(fetchMarketData, 30_000);
+    const liquidityPollInterval = setInterval(fetchLiquidityData, 60 * 60_000);
     const countdownInterval = setInterval(() => {
       setRefreshCountdown((prev) => (prev <= 1 ? 30 : prev - 1));
     }, 1_000);
@@ -92,10 +127,11 @@ export default function Home() {
 
     return () => {
       clearInterval(pollInterval);
+      clearInterval(liquidityPollInterval);
       clearInterval(countdownInterval);
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [fetchMarketData]);
+  }, [fetchMarketData, fetchLiquidityData]);
 
   // Scroll listener — 별도 effect로 분리해 mainRef 마운트 타이밍 보장
   useEffect(() => {
@@ -117,6 +153,11 @@ export default function Home() {
       abortControllerRef.current = null;
       setAnalyzing(false);
     }
+  }, []);
+
+  // 오건영 이름 필터 (클린 출력)
+  const cleanOutput = useCallback((raw: string): string => {
+    return raw.replace(/오건영(의|이|은|에서|에게|으로|로|가|이다|입니다)?/g, '');
   }, []);
 
   const handleAnalyze = useCallback(async () => {
@@ -142,30 +183,55 @@ export default function Home() {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let fullContent = '';
+      const toastedSet = new Set<string>(); // 중복 토스트 방지
 
       if (reader) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          fullContent += chunk;
-          setAnalysis(fullContent);
+          fullContent += decoder.decode(value, { stream: true });
+
+          // ⚠️/⚡ 이슈 라인 → 토스트 발사
+          fullContent.split('\n').forEach(line => {
+            const t = line.trim();
+            if (t.match(/^>\s*(\u26a0\ufe0f|\u26a1)/) && !toastedSet.has(t)) {
+              toastedSet.add(t);
+              const msg = t.replace(/^>\s*/, '');
+              pushToast(msg, msg.startsWith('\u26a0\ufe0f') ? 'warning' : 'info');
+            }
+          });
+
+          // 이슈 라인 → 빈줄 치환 후 이름 필터링해서 표시
+          const display = cleanOutput(
+            fullContent
+              .split('\n')
+              .map(line => (line.trim().match(/^>\s*(\u26a0\ufe0f|\u26a1)/) ? '' : line))
+              .join('\n')
+          );
+          setAnalysis(display);
         }
       }
 
-      // 에러 응답(⚠️)은 히스토리에 저장하지 않음
-      if (fullContent && !fullContent.trimStart().startsWith('> ⚠️')) {
+      // 히스토리 저장용 최종 정제
+      const finalContent = cleanOutput(
+        fullContent
+          .split('\n')
+          .map(line => (line.trim().match(/^>\s*(\u26a0\ufe0f|\u26a1)/) ? '' : line))
+          .join('\n')
+          .trim()
+      );
+
+      if (finalContent) {
         const newRecord: AnalysisRecord = {
           id: Date.now().toString(),
           query: userQuery,
           model: selectedModel,
-          content: fullContent,
+          content: finalContent,
           timestamp: new Date().toISOString(),
           feedback: null,
           saved: false,
         };
-        const updated = [newRecord, ...history];
-        saveHistory(updated);
+        saveHistory([newRecord, ...history]);
         setActiveHistoryId(newRecord.id);
       }
     } catch (err: unknown) {
@@ -176,7 +242,8 @@ export default function Home() {
       setAnalyzing(false);
       abortControllerRef.current = null;
     }
-  }, [query, analyzing, selectedModel, history]);
+  }, [query, analyzing, selectedModel, history, pushToast, cleanOutput]);
+
 
   const handleFeedback = (type: 'helpful' | 'not_helpful') => {
     if (!activeHistoryId) return;
@@ -197,9 +264,10 @@ export default function Home() {
 
   const currentRecord = history.find(r => r.id === activeHistoryId);
   const selectedModelInfo = MODELS.find(m => m.id === selectedModel) ?? MODELS[0];
+  const sidebarWidth = sidebarOpen ? 256 : 56;
 
   return (
-    <div className="min-h-screen bg-white text-zinc-900 font-sans selection:bg-emerald-100 selection:text-emerald-900 tracking-tight flex flex-col">
+    <div className="h-screen bg-white text-zinc-900 font-sans selection:bg-emerald-100 selection:text-emerald-900 tracking-tight flex flex-col overflow-hidden">
       <style>{`
         @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
         .animate-marquee { display: inline-flex; animation: marquee 40s linear infinite; }
@@ -216,12 +284,14 @@ export default function Home() {
         .spin { animation: spin 1s linear infinite; }
         @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
         .slide-in { animation: slideIn 0.2s ease forwards; }
+        @keyframes toastSlideIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+        @keyframes toastSlideOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(24px); } }
+        .toast-in { animation: toastSlideIn 0.3s ease forwards; }
       `}</style>
 
-      {/* ── Market Ticker (top, full width) ── */}
+      {/* ── ① Sticky Ticker Bar (전폭, 최상단 고정) ── */}
       <section className="sticky top-0 z-[100] w-full border-b border-zinc-100 bg-white/95 backdrop-blur-xl shrink-0">
         <div className="flex items-center justify-between h-12 px-4">
-          {/* Left: logo mark + market label */}
           <div className="flex items-center gap-3 shrink-0">
             <div className="w-6 h-6 rounded-lg bg-zinc-950 flex items-center justify-center">
               <span className="text-white text-[10px] font-black">N</span>
@@ -231,7 +301,6 @@ export default function Home() {
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
           </div>
 
-          {/* Center: scrolling ticker */}
           <div className="flex-1 overflow-hidden relative mx-4">
             <div className="animate-marquee whitespace-nowrap flex items-center gap-12 py-1">
               {[...data, ...data].map((item, idx) => (
@@ -246,7 +315,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Right: countdown + refresh + expand */}
           <div className="flex items-center gap-2 shrink-0">
             <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-mono text-zinc-300">
               <span className="tabular-nums">{refreshCountdown}s</span>
@@ -266,57 +334,17 @@ export default function Home() {
             </button>
           </div>
         </div>
-
-        {/* Market Overlay */}
-        <div className={`absolute top-full left-0 right-0 bg-white/98 backdrop-blur-2xl transition-all duration-700 z-[90] shadow-2xl border-b border-zinc-100 ${isExpanded ? 'max-h-[85vh] opacity-100' : 'max-h-0 opacity-0 pointer-events-none'}`}>
-          <div className="max-w-7xl mx-auto p-8 overflow-y-auto max-h-[80vh] custom-scrollbar">
-            <div className="flex items-center justify-between mb-8 pb-4 border-b border-zinc-50">
-              <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.4em]">Global Infrastructure / {data.length} Assets</p>
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 text-[10px] text-zinc-400 font-mono">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span className="uppercase tracking-widest font-bold">기준</span>
-                  <span className="tabular-nums">{dataFetchedAt || '—'}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-zinc-300 font-mono">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  <span className="tabular-nums">{refreshCountdown}s 후 갱신</span>
-                </div>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {data.map((item) => (
-                <div key={item.symbol} className="p-5 rounded-2xl border border-zinc-100 bg-white hover:border-zinc-300 transition-all shadow-sm hover:shadow-lg group">
-                  <div className="flex justify-between items-start mb-3">
-                    <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-widest group-hover:text-zinc-900 transition-colors">{item.name}</h3>
-                    <span className="text-[10px] text-zinc-300 font-mono italic">{item.symbol}</span>
-                  </div>
-                  <span className="text-2xl font-light text-zinc-950 tracking-tighter block mb-1.5">
-                    {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                  <div className={`text-sm font-bold ${item.change_percent >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {item.change_percent >= 0 ? '+' : ''}{item.change_percent.toFixed(2)}%
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
       </section>
 
-      {/* ── Body: Sidebar + Main ── */}
-      <div className="flex flex-1">
+      {/* ── ② Body: GNB(좌, 전체 높이) + 우측 컬럼(마켓패널 + 메인) ── */}
+      <div className="flex flex-1 min-h-0">
 
-        {/* ── Left Sidebar (GNB) — fixed, scroll-independent ── */}
+        {/* ── Left GNB — 전체 높이 차지, self-scroll ── */}
         <aside
-          className={`fixed left-0 flex flex-col border-r border-zinc-100 bg-white transition-all duration-300 z-[150] ${sidebarOpen ? 'w-64' : 'w-14'}`}
-          style={{ top: '48px', bottom: 0 }}
+          className={`flex flex-col shrink-0 border-r border-zinc-100 bg-white transition-all duration-300 overflow-y-auto overflow-x-hidden ${sidebarOpen ? 'w-64' : 'w-14'}`}
         >
-
           {/* Sidebar toggle */}
-          <div className="flex items-center justify-between px-3 py-3 border-b border-zinc-50">
+          <div className="flex items-center justify-between px-3 py-3 border-b border-zinc-50 shrink-0">
             {sidebarOpen && (
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.25em] pl-1">History</span>
             )}
@@ -332,7 +360,7 @@ export default function Home() {
           </div>
 
           {/* New analysis button */}
-          <div className="px-2 py-2 border-b border-zinc-50">
+          <div className="px-2 py-2 border-b border-zinc-50 shrink-0">
             <button
               onClick={() => { setAnalysis(null); setCurrentQuery(''); setActiveHistoryId(null); setQuery(''); }}
               className={`w-full h-9 flex items-center gap-2.5 px-3 rounded-xl transition-all text-xs font-medium text-zinc-500 hover:bg-zinc-50 hover:text-zinc-800 ${!sidebarOpen ? 'justify-center' : ''}`}
@@ -348,7 +376,6 @@ export default function Home() {
           {/* History list */}
           <div className="flex-1 overflow-y-auto custom-scrollbar py-2">
             {!sidebarOpen ? (
-              /* Collapsed: show dots for each history item */
               <div className="flex flex-col items-center gap-1.5 px-2 pt-1">
                 {history.slice(0, 10).map((record) => (
                   <button key={record.id} onClick={() => loadHistoryItem(record)}
@@ -359,7 +386,6 @@ export default function Home() {
                 ))}
               </div>
             ) : (
-              /* Expanded: full history list */
               history.length === 0 ? (
                 <div className="px-4 py-8 text-center">
                   <p className="text-xs text-zinc-300">분석 기록이 없습니다</p>
@@ -413,149 +439,229 @@ export default function Home() {
           )}
         </aside>
 
-        {/* ── Main Content ── */}
-        <main
-          ref={mainRef}
-          className="flex-1 overflow-y-auto custom-scrollbar relative"
-          style={{ marginLeft: sidebarOpen ? '256px' : '56px', transition: 'margin-left 0.3s ease' }}
-        >
+        {/* ── 우측 컬럼: 마켓패널(접힘/펼침) + 메인 컨텐츠 ── */}
+        <div className="flex flex-col flex-1 min-h-0">
 
-          {/* ── Sticky Floating Title Bar (visible on scroll) ── */}
-          {(analysis || analyzing) && (
-            <div
-              className="sticky top-0 z-50 flex items-center justify-between px-8 transition-all duration-200"
-              style={{
-                height: headerScrolled ? '52px' : '0px',
-                opacity: headerScrolled ? 1 : 0,
-                pointerEvents: headerScrolled ? 'auto' : 'none',
-                background: 'rgba(255,255,255,0.92)',
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
-                borderBottom: headerScrolled ? '1px solid rgba(0,0,0,0.06)' : '1px solid transparent',
-                boxShadow: headerScrolled ? '0 2px 16px rgba(0,0,0,0.06)' : 'none',
-                overflow: 'hidden',
-              }}
-            >
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-0.5 h-4 bg-zinc-900 rounded-full shrink-0"></div>
-                <span className="text-sm font-semibold text-zinc-900 truncate tracking-tight">{currentQuery || '매크로 분석'}</span>
-                <span className="text-zinc-200 shrink-0">·</span>
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selectedModel === 'gemini' ? 'bg-blue-500' : selectedModel === 'gpt' ? 'bg-emerald-500' : 'bg-purple-500'}`}></span>
-                <span className="text-[11px] text-zinc-400 uppercase tracking-widest shrink-0">{selectedModelInfo.name}</span>
-                {analyzing && (
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 shrink-0">
-                    <span className="w-2 h-2 border border-amber-400 border-t-transparent rounded-full spin"></span>분석 중
-                  </span>
-                )}
+          {/* ── 마켓 패널 — GNB 오른쪽만 차지, 동적 너비 ── */}
+          <div className={`overflow-hidden transition-all duration-500 border-b border-zinc-100 bg-white shadow-sm shrink-0 ${isExpanded ? 'max-h-[58vh] opacity-100' : 'max-h-0 opacity-0 pointer-events-none'}`}>
+            <div className="px-5 py-4 overflow-y-auto max-h-[56vh] custom-scrollbar">
+
+              {/* 헤더 */}
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-zinc-50">
+                <div className="flex items-center gap-3">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-[0.4em]">Global / {data.length} Assets</p>
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="text-[10px] text-zinc-300 font-mono tabular-nums">{dataFetchedAt || '—'}</span>
+                </div>
+                <span className="text-[10px] text-zinc-300 font-mono tabular-nums">{refreshCountdown}s 후 갱신</span>
               </div>
-              {!analyzing && analysis && (
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button onClick={() => handleFeedback('helpful')}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all text-sm ${currentRecord?.feedback === 'helpful' ? 'bg-emerald-50 border-emerald-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
-                    title="도움이 됐어요">👍</button>
-                  <button onClick={() => handleFeedback('not_helpful')}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all text-sm ${currentRecord?.feedback === 'not_helpful' ? 'bg-rose-50 border-rose-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
-                    title="개선이 필요해요">👎</button>
-                  <button onClick={handleSave}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all text-sm ${currentRecord?.saved ? 'bg-amber-50 border-amber-200 text-amber-500' : 'border-zinc-200 hover:bg-zinc-50 text-zinc-400'}`}
-                    title={currentRecord?.saved ? '저장됨' : '저장하기'}>★</button>
-                  <button onClick={() => { setAnalysis(null); setCurrentQuery(''); setActiveHistoryId(null); }}
-                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-400 transition-all text-xs"
-                    title="초기화">✕</button>
+
+              {/* 시장 데이터 카드 — 컴팩트 (기본 3열 → xl 5열) */}
+              <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-5 gap-2">
+                {data.map((item) => (
+                  <div key={item.symbol} className="p-3 rounded-xl border border-zinc-100 bg-zinc-50/40 hover:border-zinc-200 hover:bg-white transition-all group">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-wide group-hover:text-zinc-700 transition-colors truncate pr-1">{item.name}</span>
+                      <span className="text-[8px] text-zinc-300 font-mono shrink-0">{item.symbol}</span>
+                    </div>
+                    <div className="text-sm font-semibold text-zinc-900 tracking-tight tabular-nums leading-tight">
+                      {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </div>
+                    <div className={`text-[10px] font-bold mt-0.5 ${item.change_percent >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                      {item.change_percent >= 0 ? '+' : ''}{item.change_percent.toFixed(2)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* US Liquidity Indicators (FRED) */}
+              {liquidityData.length > 0 && (
+                <div className="mt-5">
+                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-zinc-50">
+                    <span className="text-[9px] font-bold text-zinc-400 uppercase tracking-[0.3em]">US Liquidity / Fed &amp; Treasury (FRED)</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse shrink-0"></span>
+                  </div>
+                  <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-6 gap-2">
+                    {liquidityData.map((item) => (
+                      <div key={item.series} className="p-3 rounded-xl border border-blue-50 bg-blue-50/30 hover:border-blue-200 hover:bg-blue-50/60 transition-all group" title={item.desc}>
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-[9px] font-bold text-blue-400 uppercase tracking-wide">{item.series}</span>
+                          <span className="text-[8px] text-zinc-300 font-mono shrink-0">{item.date?.slice(0, 7)}</span>
+                        </div>
+                        <div className="text-sm font-semibold text-zinc-800 tracking-tight tabular-nums leading-tight">
+                          {item.value.toLocaleString(undefined, { minimumFractionDigits: item.unit === '%' ? 2 : 0, maximumFractionDigits: item.unit === '%' ? 2 : 0 })}
+                          <span className="text-[9px] text-zinc-400 ml-0.5 font-normal">{item.unit}</span>
+                        </div>
+                        <div className="text-[9px] text-zinc-400 mt-0.5 leading-tight truncate">{item.name}</div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
-          )}
+          </div>
 
-          <div className="px-8 py-8 pb-48">
-
-            {/* ── Analysis Section ── */}
-            <section className="min-h-[calc(100vh-120px)]">
-              {!analysis && !analyzing ? (
-                <div className="flex flex-col items-center justify-center min-h-[calc(100vh-180px)] text-zinc-200">
-                  <svg className="w-16 h-16 mb-5 opacity-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={0.8} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                  </svg>
-                  <p className="text-sm font-bold uppercase tracking-[0.4em] text-zinc-300">질문을 입력하고 분석을 시작하세요</p>
-                  <p className="text-xs text-zinc-200 mt-2">IB 리포트 + 실시간 데이터 기반 · Zero Hallucination Policy</p>
+          {/* ── Main Content ── */}
+          <main
+            ref={mainRef}
+            className="flex-1 overflow-y-auto custom-scrollbar relative"
+          >
+            {/* Sticky Floating Title Bar (스크롤 시 표시) */}
+            {(analysis || analyzing) && (
+              <div
+                className="sticky top-0 z-50 flex items-center justify-between px-8 transition-all duration-200"
+                style={{
+                  height: headerScrolled ? '52px' : '0px',
+                  opacity: headerScrolled ? 1 : 0,
+                  pointerEvents: headerScrolled ? 'auto' : 'none',
+                  background: 'rgba(255,255,255,0.92)',
+                  backdropFilter: 'blur(20px)',
+                  WebkitBackdropFilter: 'blur(20px)',
+                  borderBottom: headerScrolled ? '1px solid rgba(0,0,0,0.06)' : '1px solid transparent',
+                  boxShadow: headerScrolled ? '0 2px 16px rgba(0,0,0,0.06)' : 'none',
+                  overflow: 'hidden',
+                }}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-0.5 h-4 bg-zinc-900 rounded-full shrink-0"></div>
+                  <span className="text-sm font-semibold text-zinc-900 truncate tracking-tight">{currentQuery || '매크로 분석'}</span>
+                  <span className="text-zinc-200 shrink-0">·</span>
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${selectedModel === 'gemini' ? 'bg-blue-500' : selectedModel === 'gpt' ? 'bg-emerald-500' : 'bg-purple-500'}`}></span>
+                  <span className="text-[11px] text-zinc-400 uppercase tracking-widest shrink-0">{selectedModelInfo.name}</span>
+                  {analyzing && (
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100 shrink-0">
+                      <span className="w-2 h-2 border border-amber-400 border-t-transparent rounded-full spin"></span>분석 중
+                    </span>
+                  )}
                 </div>
-              ) : (
-                <div className="max-w-none">
-                  {/* Analysis Header */}
-                  <div className="flex items-start justify-between gap-4 mb-8 pb-6 border-b border-zinc-200">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="w-1 h-6 bg-zinc-950 rounded-full shrink-0"></div>
-                        <h2 className="text-xl font-medium tracking-tight text-zinc-950 truncate">{currentQuery || '매크로 분석'}</h2>
+                {!analyzing && analysis && (
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={() => handleFeedback('helpful')}
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all text-sm ${currentRecord?.feedback === 'helpful' ? 'bg-emerald-50 border-emerald-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
+                      title="도움이 됐어요">👍</button>
+                    <button onClick={() => handleFeedback('not_helpful')}
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all text-sm ${currentRecord?.feedback === 'not_helpful' ? 'bg-rose-50 border-rose-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
+                      title="개선이 필요해요">👎</button>
+                    <button onClick={handleSave}
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-all text-sm ${currentRecord?.saved ? 'bg-amber-50 border-amber-200 text-amber-500' : 'border-zinc-200 hover:bg-zinc-50 text-zinc-400'}`}
+                      title={currentRecord?.saved ? '저장됨' : '저장하기'}>★</button>
+                    <button onClick={() => { setAnalysis(null); setCurrentQuery(''); setActiveHistoryId(null); }}
+                      className="w-8 h-8 flex items-center justify-center rounded-lg border border-zinc-200 hover:bg-zinc-50 text-zinc-400 transition-all text-xs"
+                      title="초기화">✕</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="px-8 py-8 pb-36">
+              <section className="min-h-[calc(100vh-120px)]">
+                {!analysis && !analyzing ? (
+                  <div className="flex flex-col items-center justify-center min-h-[calc(100vh-180px)] text-zinc-200">
+                    <svg className="w-16 h-16 mb-5 opacity-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={0.8} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    <p className="text-sm font-bold uppercase tracking-[0.4em] text-zinc-300">질문을 입력하고 분석을 시작하세요</p>
+                    <p className="text-xs text-zinc-200 mt-2">IB 리포트 + 실시간 데이터 기반 · Zero Hallucination Policy</p>
+                  </div>
+                ) : (
+                  <div className="max-w-none">
+                    <div className="flex items-start justify-between gap-4 mb-8 pb-6 border-b border-zinc-200">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-3 mb-2">
+                          <div className="w-1 h-6 bg-zinc-950 rounded-full shrink-0"></div>
+                          <h2 className="text-xl font-medium tracking-tight text-zinc-950 truncate">{currentQuery || '매크로 분석'}</h2>
+                        </div>
+                        <div className="flex items-center gap-3 ml-4 flex-wrap">
+                          <span className={`w-2 h-2 rounded-full ${selectedModel === 'gemini' ? 'bg-blue-500' : selectedModel === 'gpt' ? 'bg-emerald-500' : 'bg-purple-500'}`}></span>
+                          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{selectedModelInfo.fullName}</span>
+                          <span className="text-zinc-200">·</span>
+                          <span className="text-[11px] text-zinc-400">{new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                          {!analyzing && (
+                            <>
+                              <span className="text-zinc-200">·</span>
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
+                                <span className="w-1 h-1 rounded-full bg-emerald-500"></span>Grounded
+                              </span>
+                            </>
+                          )}
+                          {analyzing && (
+                            <>
+                              <span className="text-zinc-200">·</span>
+                              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
+                                <span className="w-2 h-2 border border-amber-400 border-t-transparent rounded-full spin"></span>분석 중
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-3 ml-4 flex-wrap">
-                        <span className={`w-2 h-2 rounded-full ${selectedModel === 'gemini' ? 'bg-blue-500' : selectedModel === 'gpt' ? 'bg-emerald-500' : 'bg-purple-500'}`}></span>
-                        <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{selectedModelInfo.fullName}</span>
-                        <span className="text-zinc-200">·</span>
-                        <span className="text-[11px] text-zinc-400">{new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-                        {!analyzing && (
-                          <>
-                            <span className="text-zinc-200">·</span>
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                              <span className="w-1 h-1 rounded-full bg-emerald-500"></span>Grounded
-                            </span>
-                          </>
-                        )}
-                        {analyzing && (
-                          <>
-                            <span className="text-zinc-200">·</span>
-                            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
-                              <span className="w-2 h-2 border border-amber-400 border-t-transparent rounded-full spin"></span>분석 중
-                            </span>
-                          </>
-                        )}
-                      </div>
+
+                      {!analyzing && analysis && (
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button onClick={() => handleFeedback('helpful')}
+                            className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all text-base ${currentRecord?.feedback === 'helpful' ? 'bg-emerald-50 border-emerald-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
+                            title="도움이 됐어요">👍</button>
+                          <button onClick={() => handleFeedback('not_helpful')}
+                            className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all text-base ${currentRecord?.feedback === 'not_helpful' ? 'bg-rose-50 border-rose-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
+                            title="개선이 필요해요">👎</button>
+                          <div className="w-px h-6 bg-zinc-100 mx-1"></div>
+                          <button onClick={handleSave}
+                            className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all ${currentRecord?.saved ? 'bg-amber-50 border-amber-200 text-amber-500' : 'border-zinc-200 hover:bg-zinc-50 text-zinc-400'}`}
+                            title={currentRecord?.saved ? '저장됨' : '저장하기'}>★</button>
+                          <button onClick={() => { setAnalysis(null); setCurrentQuery(''); setActiveHistoryId(null); }}
+                            className="w-9 h-9 flex items-center justify-center rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-400 transition-all text-sm"
+                            title="초기화">✕</button>
+                        </div>
+                      )}
                     </div>
 
-                    {/* Human-in-the-loop Actions */}
-                    {!analyzing && analysis && (
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => handleFeedback('helpful')}
-                          className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all text-base ${currentRecord?.feedback === 'helpful' ? 'bg-emerald-50 border-emerald-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
-                          title="도움이 됐어요">👍</button>
-                        <button onClick={() => handleFeedback('not_helpful')}
-                          className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all text-base ${currentRecord?.feedback === 'not_helpful' ? 'bg-rose-50 border-rose-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
-                          title="개선이 필요해요">👎</button>
-                        <div className="w-px h-6 bg-zinc-100 mx-1"></div>
-                        <button onClick={handleSave}
-                          className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all ${currentRecord?.saved ? 'bg-amber-50 border-amber-200 text-amber-500' : 'border-zinc-200 hover:bg-zinc-50 text-zinc-400'}`}
-                          title={currentRecord?.saved ? '저장됨' : '저장하기'}>★</button>
-                        <button onClick={() => { setAnalysis(null); setCurrentQuery(''); setActiveHistoryId(null); }}
-                          className="w-9 h-9 flex items-center justify-center rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-400 transition-all text-sm"
-                          title="초기화">✕</button>
-                      </div>
-                    )}
-                  </div>
+                    <article className="prose prose-zinc max-w-none
+                      prose-h2:text-zinc-950 prose-h2:font-bold prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-6 prose-h2:tracking-tight prose-h2:border-b prose-h2:border-zinc-100 prose-h2:pb-4
+                      prose-h3:text-zinc-500 prose-h3:text-xs prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:mt-10
+                      prose-p:text-zinc-700 prose-p:text-lg prose-p:leading-[1.8] prose-p:mb-6
+                      prose-strong:text-black prose-strong:font-black
+                      prose-li:text-zinc-700 prose-li:text-base prose-li:my-2
+                      prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-5 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-sm prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
+                      <ReactMarkdown>{analysis}</ReactMarkdown>
+                      {analyzing && <span className="cursor-blink"></span>}
+                    </article>
 
-                  {/* Content */}
-                  <article className="prose prose-zinc max-w-none
-                    prose-h2:text-zinc-950 prose-h2:font-bold prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-6 prose-h2:tracking-tight prose-h2:border-b prose-h2:border-zinc-100 prose-h2:pb-4
-                    prose-h3:text-zinc-500 prose-h3:text-xs prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:mt-10
-                    prose-p:text-zinc-700 prose-p:text-lg prose-p:leading-[1.8] prose-p:mb-6
-                    prose-strong:text-black prose-strong:font-black
-                    prose-li:text-zinc-700 prose-li:text-base prose-li:my-2
-                    prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-5 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-sm prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
-                    <ReactMarkdown>{analysis}</ReactMarkdown>
-                    {analyzing && <span className="cursor-blink"></span>}
-                  </article>
+                  </div>
+                )}
+              </section>
+
+              {/* ── 이슈 이력 로그 ── */}
+              {issueLog.length > 0 && (
+                <div className="mt-12 pt-6 border-t border-zinc-100">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-bold text-zinc-300 uppercase tracking-[0.3em]">시스템 이슈 이력</span>
+                      <span className="text-[9px] font-mono text-zinc-200 bg-zinc-50 px-1.5 py-0.5 rounded-md">{issueLog.length}</span>
+                    </div>
+                    <button onClick={() => setIssueLog([])}
+                      className="text-[9px] text-zinc-200 hover:text-rose-400 transition-colors">
+                      지우기
+                    </button>
+                  </div>
+                  <div className="space-y-1">
+                    {issueLog.map((item) => (
+                      <div key={item.id} className="flex items-start gap-2.5 py-1.5 px-3 rounded-lg bg-zinc-50/60">
+                        <span className="text-[10px] shrink-0 mt-px">{item.type === 'warning' ? '⚠️' : '⚡'}</span>
+                        <span className="text-[10px] text-zinc-400 font-mono tabular-nums shrink-0">{item.timestamp}</span>
+                        <span className="text-[10px] text-zinc-500 leading-relaxed">{item.message.replace(/^[⚠️⚡\s]+/, '')}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
-            </section>
-
-
-          </div>
-        </main>
+            </div>
+          </main>
+        </div>
       </div>
 
-      {/* ── Floating Input Bar — Glassmorphism ── */}
+      {/* ── Floating Input Bar — fixed, GNB 너비 반영 ── */}
       <div className="fixed bottom-0 z-[200] pb-5 pt-7"
         style={{
-          left: sidebarOpen ? '256px' : '56px',
+          left: `${sidebarWidth}px`,
           right: 0,
           background: 'linear-gradient(to top, rgba(248,248,250,0.98) 55%, rgba(248,248,250,0))',
           transition: 'left 0.3s ease',
@@ -691,6 +797,31 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* ── 토스트 알림 스택 (우하단 고정) ── */}
+      {toasts.length > 0 && (
+        <div className="fixed bottom-24 right-5 z-[300] flex flex-col gap-2 items-end">
+          {toasts.map((toast) => (
+            <div key={toast.id} className="toast-in flex items-start gap-2.5 px-4 py-3 rounded-xl shadow-lg max-w-xs"
+              style={{
+                background: toast.type === 'warning'
+                  ? 'rgba(255,251,235,0.96)' : 'rgba(239,246,255,0.96)',
+                border: toast.type === 'warning'
+                  ? '1px solid rgba(251,191,36,0.3)' : '1px solid rgba(147,197,253,0.4)',
+                backdropFilter: 'blur(16px)',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.10)',
+              }}>
+              <span className="text-sm shrink-0">{toast.type === 'warning' ? '⚠️' : '⚡'}</span>
+              <p className="text-[11px] leading-snug"
+                style={{ color: toast.type === 'warning' ? 'rgb(146,64,14)' : 'rgb(30,64,175)' }}>
+                {toast.message.replace(/^[⚠️⚡\s]+/, '')}
+              </p>
+              <button onClick={() => setToasts(prev => prev.filter(t => t.id !== toast.id))}
+                className="ml-1 text-zinc-300 hover:text-zinc-500 transition-colors shrink-0 text-xs leading-none mt-0.5">✕</button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
