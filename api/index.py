@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.output_parsers import StrOutputParser
-from prompts import MACRO_ANALYSIS_PROMPT
+from ._prompts import MACRO_ANALYSIS_PROMPT
 import json
 
 # Load environment variables
