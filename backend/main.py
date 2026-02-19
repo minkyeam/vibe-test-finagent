@@ -19,7 +19,22 @@ import json
 # Load environment variables
 load_dotenv()
 
+# yfinance 세션 설정 (클라우드 환경 차단 방지)
+import requests as req_lib
+_session = req_lib.Session()
+_session.headers.update({'User-Agent': 'Mozilla/5.0 FinAgent/1.0'})
+
 app = FastAPI()
+
+# CORS 설정 (별도 도메인 배포 시 필수)
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 실제 운영 시에는 Vercel 주소만 허용하는 것이 좋습니다.
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ── In-memory cache for market data (60s TTL) ──
 _market_cache: dict = {"data": None, "signals": None, "fetched_at": 0}
@@ -75,34 +90,31 @@ def fetch_market_data_internal():
     data = []
     signals = []
 
-    for symbol, name in symbols.items():
-        try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1mo")
-
-            if not hist.empty:
+    try:
+        # yf.download에 세션 전달 및 벌크 패치
+        ticker_list = list(symbols.keys())
+        df = yf.download(ticker_list, period="2d", interval="1d", group_by='ticker', silent=True, session=_session)
+        
+        for symbol, name in symbols.items():
+            try:
+                if symbol not in df.columns.levels[0]: continue
+                hist = df[symbol]
+                if hist.empty or len(hist) < 1: continue
+                
                 current = hist['Close'].iloc[-1]
                 prev = hist['Close'].iloc[-2] if len(hist) > 1 else current
-                change = ((current - prev) / prev) * 100
-
-                ma5 = hist['Close'].tail(5).mean()
-                ma20 = hist['Close'].tail(20).mean()
-
-                momentum_signal = "Neutral"
-                if current > ma5 and current > ma20:
-                    momentum_signal = "Bullish (Short-term)"
-                elif current < ma5 and current < ma20:
-                    momentum_signal = "Bearish (Short-term)"
-
+                change = ((current - prev) / prev) * 100 if prev != 0 else 0
+                
                 data.append({
                     "symbol": symbol,
                     "name": name,
-                    "price": round(current, 2),
-                    "change_percent": round(change, 2),
-                    "momentum": momentum_signal,
+                    "price": round(float(current), 2),
+                    "change_percent": round(float(change), 2)
                 })
-        except Exception as e:
-            print(f"Error fetching {symbol}: {e}")
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"Error in batch fetching: {e}")
 
     # Yield Curve signal
     try:
@@ -255,10 +267,10 @@ async def analyze_macro(request: AnalysisRequest):
         ("claude-3-5-haiku-20241022",  "Anthropic Claude 3.5 Haiku (Fallback)"),
     ]
 
-    def _is_quota_error(msg: str) -> bool:
+    def _is_retryable_error(msg: str) -> bool:
         keywords = ["429", "quota", "resourceexhausted", "rate_limit",
                     "rate limit", "too many requests", "overloaded",
-                    "credit", "billing", "insufficient_quota"]
+                    "credit", "billing", "insufficient_quota", "503", "demand"]
         m = msg.lower()
         return any(k in m for k in keywords)
 
@@ -412,14 +424,14 @@ async def analyze_macro(request: AnalysisRequest):
                 err_msg = str(e)
                 print(f"[LLM Error] {model_label}: {err_msg[:120]}")
 
-                if _is_quota_error(err_msg) and attempt < len(model_candidates) - 1:
+                if _is_retryable_error(err_msg) and attempt < len(model_candidates) - 1:
                     # 다음 fallback 모델로 재시도
                     next_label = model_candidates[attempt + 1][1]
-                    print(f"[LLM] Quota error → falling back to {next_label}")
-                    yield f"\n\n> ⚠️ **{model_label}** 쿼터/크레딧 한도 초과. **{next_label}** 으로 자동 전환합니다..."
+                    print(f"[LLM] Error (retryable) → falling back to {next_label}")
+                    yield f"\n\n> ⚠️ **{model_label}** 서비스 일시적 지연 또는 한도 초과. **{next_label}** 으로 자동 전환합니다..."
                     continue  # 다음 모델 시도
-                elif _is_quota_error(err_msg):
-                    yield f"\n\n> 🚫 **모든 모델이 쿼터를 초과했습니다.** 잠시 후 다시 시도해주세요."
+                elif _is_retryable_error(err_msg):
+                    yield f"\n\n> 🚫 **모든 모델이 현재 지연 중이거나 한도를 초과했습니다.** 잠시 후 다시 시도해주세요."
                 elif "401" in err_msg or "authentication" in err_msg.lower():
                     yield f"\n\n> ⚠️ **인증 오류**: API 키가 유효하지 않습니다. `.env` 파일을 확인해주세요."
                 else:

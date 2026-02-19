@@ -13,6 +13,5 @@ xmltodict
 requests
 httpx
 pydantic
-datetime
 pytz
-ddgs
+lxml
