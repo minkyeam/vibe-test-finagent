@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface MarketData {
   symbol: string;
@@ -646,8 +647,11 @@ export default function Home() {
                               prose-p:text-zinc-700 prose-p:text-base prose-p:leading-[1.75] prose-p:mb-5
                               prose-strong:text-black prose-strong:font-black
                               prose-li:text-zinc-700 prose-li:text-sm prose-li:my-1.5
-                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-4 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-[13px] prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
-                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-4 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-[13px] prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200
+                              prose-table:w-full prose-table:text-[11px] prose-table:border-collapse prose-table:my-4
+                              prose-th:bg-zinc-50 prose-th:px-3 prose-th:py-2 prose-th:border prose-th:border-zinc-200 prose-th:font-semibold prose-th:text-zinc-600 prose-th:text-left
+                              prose-td:px-3 prose-td:py-2 prose-td:border prose-td:border-zinc-100 prose-td:text-zinc-600">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                             </article>
                           </div>
                         )}
@@ -674,8 +678,11 @@ export default function Home() {
                               prose-p:text-zinc-700 prose-p:text-base prose-p:leading-[1.75] prose-p:mb-5
                               prose-strong:text-black prose-strong:font-black
                               prose-li:text-zinc-700 prose-li:text-sm prose-li:my-1.5
-                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-4 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-[13px] prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
-                            <ReactMarkdown>{analysis ?? ""}</ReactMarkdown>
+                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-4 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-[13px] prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200
+                              prose-table:w-full prose-table:text-[11px] prose-table:border-collapse prose-table:my-4
+                              prose-th:bg-zinc-50 prose-th:px-3 prose-th:py-2 prose-th:border prose-th:border-zinc-200 prose-th:font-semibold prose-th:text-zinc-600 prose-th:text-left
+                              prose-td:px-3 prose-td:py-2 prose-td:border prose-td:border-zinc-100 prose-td:text-zinc-600">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{analysis ?? ""}</ReactMarkdown>
                             <span className="cursor-blink"></span>
                           </article>
                         </div>
