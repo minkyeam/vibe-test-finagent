@@ -15,6 +15,7 @@ from langchain_community.tools import DuckDuckGoSearchRun
 from langchain_core.output_parsers import StrOutputParser
 from prompts import MACRO_ANALYSIS_PROMPT
 import json
+import sqlite3
 
 # Load environment variables
 load_dotenv()
@@ -260,6 +261,34 @@ def get_liquidity_data():
     data = _get_cached_liquidity()
     return {"data": data}
 
+
+def get_db_portfolio():
+    db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("SELECT ticker, name, quantity, buy_price, current_price, profit_krw FROM portfolio")
+        rows = c.fetchall()
+        conn.close()
+        return rows
+    except Exception as e:
+        print(f"[DB Error] {e}")
+        return []
+
+@app.get("/api/portfolio")
+def fetch_portfolio():
+    rows = get_db_portfolio()
+    data = []
+    for r in rows:
+        data.append({
+            "ticker": r[0],
+            "name": r[1],
+            "quantity": r[2],
+            "buy_price": r[3],
+            "current_price": r[4],
+            "profit_krw": r[5]
+        })
+    return {"data": data}
 
 class AnalysisRequest(BaseModel):
     query: str

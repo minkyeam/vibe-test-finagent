@@ -116,9 +116,30 @@ export default function Home() {
       .catch(console.error);
   }, []);
 
+  const fetchDbPortfolio = useCallback(() => {
+    fetch('/api/portfolio')
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.data && json.data.length > 0) {
+          const portStr = json.data.map((i: any) => `${i.name}(${i.ticker}) ${i.quantity.toFixed(2)}주`).join(', ');
+          setUserPortfolio(portStr);
+          localStorage.setItem('user_portfolio', portStr);
+        } else {
+          const savedPortfolio = localStorage.getItem('user_portfolio');
+          if (savedPortfolio) setUserPortfolio(savedPortfolio);
+        }
+      })
+      .catch((e) => {
+        console.error("DB Fetch Error", e);
+        const savedPortfolio = localStorage.getItem('user_portfolio');
+        if (savedPortfolio) setUserPortfolio(savedPortfolio);
+      });
+  }, []);
+
   useEffect(() => {
     fetchMarketData();
     fetchLiquidityData();
+    fetchDbPortfolio();
     const pollInterval = setInterval(fetchMarketData, 30_000);
     const liquidityPollInterval = setInterval(fetchLiquidityData, 60 * 60_000);
     const countdownInterval = setInterval(() => {
@@ -134,9 +155,6 @@ export default function Home() {
 
     const saved = localStorage.getItem('analysis_history');
     if (saved) setHistory(JSON.parse(saved));
-
-    const savedPortfolio = localStorage.getItem('user_portfolio');
-    if (savedPortfolio) setUserPortfolio(savedPortfolio);
 
     return () => {
       clearInterval(pollInterval);
