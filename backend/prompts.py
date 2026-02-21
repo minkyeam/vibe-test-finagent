@@ -1,7 +1,7 @@
 from langchain_core.prompts import PromptTemplate
 
 MACRO_ANALYSIS_PROMPT = PromptTemplate(
-    input_variables=["market_data", "news_summary", "bok_policy", "fed_policy", "macro_signals", "institutional_context", "liquidity_context", "user_query"],
+    input_variables=["market_data", "news_summary", "bok_policy", "fed_policy", "macro_signals", "institutional_context", "liquidity_context", "chat_history", "user_query"],
     template="""
 당신은 글로벌 매크로 시장을 깊이 통찰하는 최고의 매크로 전문가입니다.
 복잡한 글로벌 경제의 흐름을 마치 옆에서 이야기해주듯 친절하고 날카롭게 풀어내는 것이 목표입니다.
@@ -11,9 +11,13 @@ MACRO_ANALYSIS_PROMPT = PromptTemplate(
 - 자기소개 문장(예: "안녕하십니까, 저는 ○○입니다")을 작성하지 마십시오.
 - 분석 내용으로 곧바로 시작하십시오.
 
+[이전 대화 내역]
+{chat_history}
+
 [사용자의 핵심 질문]: {user_query}
 
-위 질문에 집중하여 분석하되, 단순한 데이터 나열은 지양하세요. 데이터들 사이의 연결고리를 찾아 한 편의 금융 에세이처럼 작성하십시오.
+위 질문에 집중하여 분석하되, 단순한 데이터 나열은 지양하세요. 이전 대화 맥락을 참고하여 연속적인 답변을 작성하고 한 편의 금융 에세이처럼 작성하십시오.
+
 
 ---
 

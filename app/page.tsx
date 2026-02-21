@@ -21,11 +21,17 @@ interface LiquidityItem {
   desc: string;
 }
 
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 interface AnalysisRecord {
   id: string;
-  query: string;
+  title: string;
   model: string;
-  content: string;
+  messages: ChatMessage[];
   timestamp: string;
   feedback?: 'helpful' | 'not_helpful' | null;
   saved: boolean;
@@ -172,11 +178,14 @@ export default function Home() {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    const currentSession = history.find(r => r.id === activeHistoryId);
+    const apiHistory = currentSession ? currentSession.messages : [];
+
     try {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userQuery, model: selectedModel }),
+        body: JSON.stringify({ query: userQuery, model: selectedModel, history: apiHistory }),
         signal: controller.signal,
       });
 
@@ -224,17 +233,36 @@ export default function Home() {
       );
 
       if (finalContent) {
-        const newRecord: AnalysisRecord = {
-          id: Date.now().toString(),
-          query: userQuery,
-          model: selectedModel,
-          content: finalContent,
-          timestamp: new Date().toISOString(),
-          feedback: null,
-          saved: false,
-        };
-        saveHistory([newRecord, ...history]);
-        setActiveHistoryId(newRecord.id);
+        setQuery('');
+        let updatedHistory = [...history];
+        const sessionIdx = updatedHistory.findIndex(r => r.id === activeHistoryId);
+        if (sessionIdx >= 0) {
+          updatedHistory[sessionIdx] = {
+            ...updatedHistory[sessionIdx],
+            messages: [
+              ...updatedHistory[sessionIdx].messages,
+              { id: Date.now().toString() + 'u', role: 'user', content: userQuery },
+              { id: Date.now().toString() + 'a', role: 'assistant', content: finalContent }
+            ],
+            timestamp: new Date().toISOString()
+          };
+          saveHistory(updatedHistory);
+        } else {
+          const newRecord: AnalysisRecord = {
+            id: Date.now().toString(),
+            title: userQuery,
+            model: selectedModel,
+            messages: [
+              { id: Date.now().toString() + 'u', role: 'user', content: userQuery },
+              { id: Date.now().toString() + 'a', role: 'assistant', content: finalContent }
+            ],
+            timestamp: new Date().toISOString(),
+            feedback: null,
+            saved: false,
+          };
+          saveHistory([newRecord, ...updatedHistory]);
+          setActiveHistoryId(newRecord.id);
+        }
       }
     } catch (err: unknown) {
       if (err instanceof Error && err.name !== 'AbortError') {
@@ -258,10 +286,10 @@ export default function Home() {
   };
 
   const loadHistoryItem = (record: AnalysisRecord) => {
-    setAnalysis(record.content);
-    setCurrentQuery(record.query);
+    setAnalysis('');
+    setCurrentQuery(record.title);
     setActiveHistoryId(record.id);
-    setQuery(record.query);
+    setQuery('');
   };
 
   const currentRecord = history.find(r => r.id === activeHistoryId);
@@ -385,17 +413,7 @@ export default function Home() {
 
           {/* History list */}
           <div className="flex-1 overflow-y-auto custom-scrollbar py-2">
-            {!sidebarOpen ? (
-              <div className="flex flex-col items-center gap-1.5 px-2 pt-1">
-                {history.slice(0, 10).map((record) => (
-                  <button key={record.id} onClick={() => loadHistoryItem(record)}
-                    title={record.query}
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all text-[10px] font-bold ${activeHistoryId === record.id ? 'bg-zinc-900 text-white' : 'hover:bg-zinc-100 text-zinc-400'}`}>
-                    {record.model === 'gemini' ? 'G' : record.model === 'gpt' ? 'O' : 'C'}
-                  </button>
-                ))}
-              </div>
-            ) : (
+            {!sidebarOpen ? null : (
               history.length === 0 ? (
                 <div className="px-4 py-8 text-center">
                   <p className="text-xs text-zinc-300">분석 기록이 없습니다</p>
@@ -408,7 +426,7 @@ export default function Home() {
                       <div className="flex items-start gap-2">
                         <span className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${record.model === 'gemini' ? 'bg-blue-400' : record.model === 'gpt' ? 'bg-emerald-400' : 'bg-purple-400'}`}></span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium text-zinc-700 line-clamp-2 leading-snug">{record.query}</p>
+                          <p className="text-xs font-medium text-zinc-700 line-clamp-2 leading-snug">{record.title}</p>
                           <div className="flex items-center gap-1.5 mt-1">
                             <span className="text-[10px] text-zinc-400 uppercase">{record.model}</span>
                             <span className="text-[10px] text-zinc-300">·</span>
@@ -587,67 +605,79 @@ export default function Home() {
                     <p className="text-xs text-zinc-200 mt-2">IB 리포트 + 실시간 데이터 기반 · Zero Hallucination Policy</p>
                   </div>
                 ) : (
-                  <div className="max-w-none">
-                    <div className="flex items-start justify-between gap-4 mb-8 pb-6 border-b border-zinc-200">
-                      <div className="flex-1 min-w-0">
+                  <div className="max-w-none flex flex-col gap-12">
+                    {currentRecord?.messages.map((msg, i) => (
+                      <div key={msg.id} className="fade-in">
+                        {msg.role === 'user' ? (
+                          <div className="flex items-center gap-3 mb-2">
+                            <div className="w-1 h-6 bg-zinc-950 rounded-full shrink-0"></div>
+                            <h2 className="text-xl font-medium tracking-tight text-zinc-950 min-w-0 break-words flex-1 leading-snug">{msg.content}</h2>
+                          </div>
+                        ) : (
+                          <div className="ml-4 pl-4 border-l border-zinc-100">
+                            <div className="flex items-center gap-3 mb-4 pb-4 border-b border-zinc-50 flex-wrap">
+                              <span className={`w-2 h-2 rounded-full ${currentRecord.model === 'gemini' ? 'bg-blue-500' : currentRecord.model === 'gpt' ? 'bg-emerald-500' : 'bg-purple-500'}`}></span>
+                              <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{currentRecord.model}</span>
+                            </div>
+                            <article className="prose prose-zinc max-w-none
+                              prose-h2:text-zinc-950 prose-h2:font-bold prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-6 prose-h2:tracking-tight prose-h2:border-b prose-h2:border-zinc-100 prose-h2:pb-4
+                              prose-h3:text-zinc-500 prose-h3:text-xs prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:mt-10
+                              prose-p:text-zinc-700 prose-p:text-lg prose-p:leading-[1.8] prose-p:mb-6
+                              prose-strong:text-black prose-strong:font-black
+                              prose-li:text-zinc-700 prose-li:text-base prose-li:my-2
+                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-5 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-sm prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
+                              <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            </article>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+
+                    {analyzing && (
+                      <div className="fade-in">
                         <div className="flex items-center gap-3 mb-2">
                           <div className="w-1 h-6 bg-zinc-950 rounded-full shrink-0"></div>
-                          <h2 className="text-xl font-medium tracking-tight text-zinc-950 truncate">{currentQuery || '매크로 분석'}</h2>
+                          <h2 className="text-xl font-medium tracking-tight text-zinc-950 min-w-0 break-words flex-1 leading-snug">{currentQuery}</h2>
                         </div>
-                        <div className="flex items-center gap-3 ml-4 flex-wrap">
-                          <span className={`w-2 h-2 rounded-full ${selectedModel === 'gemini' ? 'bg-blue-500' : selectedModel === 'gpt' ? 'bg-emerald-500' : 'bg-purple-500'}`}></span>
-                          <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{selectedModelInfo.fullName}</span>
-                          <span className="text-zinc-200">·</span>
-                          <span className="text-[11px] text-zinc-400">{new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
-                          {!analyzing && (
-                            <>
-                              <span className="text-zinc-200">·</span>
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-100">
-                                <span className="w-1 h-1 rounded-full bg-emerald-500"></span>Grounded
-                              </span>
-                            </>
-                          )}
-                          {analyzing && (
-                            <>
-                              <span className="text-zinc-200">·</span>
-                              <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
-                                <span className="w-2 h-2 border border-amber-400 border-t-transparent rounded-full spin"></span>분석 중
-                              </span>
-                            </>
-                          )}
+                        <div className="ml-4 pl-4 border-l border-zinc-100">
+                          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-zinc-50 flex-wrap">
+                            <span className={`w-2 h-2 rounded-full ${selectedModel === 'gemini' ? 'bg-blue-500' : selectedModel === 'gpt' ? 'bg-emerald-500' : 'bg-purple-500'}`}></span>
+                            <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{selectedModelInfo.fullName}</span>
+                            <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-100">
+                              <span className="w-2 h-2 border border-amber-400 border-t-transparent rounded-full spin"></span>분석 중
+                            </span>
+                          </div>
+                          <article className="prose prose-zinc max-w-none
+                              prose-h2:text-zinc-950 prose-h2:font-bold prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-6 prose-h2:tracking-tight prose-h2:border-b prose-h2:border-zinc-100 prose-h2:pb-4
+                              prose-h3:text-zinc-500 prose-h3:text-xs prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:mt-10
+                              prose-p:text-zinc-700 prose-p:text-lg prose-p:leading-[1.8] prose-p:mb-6
+                              prose-strong:text-black prose-strong:font-black
+                              prose-li:text-zinc-700 prose-li:text-base prose-li:my-2
+                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-5 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-sm prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
+                            <ReactMarkdown>{analysis ?? ""}</ReactMarkdown>
+                            <span className="cursor-blink"></span>
+                          </article>
                         </div>
                       </div>
+                    )}
 
-                      {!analyzing && analysis && (
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button onClick={() => handleFeedback('helpful')}
-                            className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all text-base ${currentRecord?.feedback === 'helpful' ? 'bg-emerald-50 border-emerald-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
-                            title="도움이 됐어요">👍</button>
-                          <button onClick={() => handleFeedback('not_helpful')}
-                            className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all text-base ${currentRecord?.feedback === 'not_helpful' ? 'bg-rose-50 border-rose-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
-                            title="개선이 필요해요">👎</button>
-                          <div className="w-px h-6 bg-zinc-100 mx-1"></div>
-                          <button onClick={handleSave}
-                            className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all ${currentRecord?.saved ? 'bg-amber-50 border-amber-200 text-amber-500' : 'border-zinc-200 hover:bg-zinc-50 text-zinc-400'}`}
-                            title={currentRecord?.saved ? '저장됨' : '저장하기'}>★</button>
-                          <button onClick={() => { setAnalysis(null); setCurrentQuery(''); setActiveHistoryId(null); }}
-                            className="w-9 h-9 flex items-center justify-center rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-400 transition-all text-sm"
-                            title="초기화">✕</button>
-                        </div>
-                      )}
-                    </div>
-
-                    <article className="prose prose-zinc max-w-none
-                      prose-h2:text-zinc-950 prose-h2:font-bold prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-6 prose-h2:tracking-tight prose-h2:border-b prose-h2:border-zinc-100 prose-h2:pb-4
-                      prose-h3:text-zinc-500 prose-h3:text-xs prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:mt-10
-                      prose-p:text-zinc-700 prose-p:text-lg prose-p:leading-[1.8] prose-p:mb-6
-                      prose-strong:text-black prose-strong:font-black
-                      prose-li:text-zinc-700 prose-li:text-base prose-li:my-2
-                      prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-5 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-sm prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
-                      <ReactMarkdown>{analysis}</ReactMarkdown>
-                      {analyzing && <span className="cursor-blink"></span>}
-                    </article>
-
+                    {!analyzing && currentRecord && (
+                      <div className="flex items-center gap-2 mt-8 ml-4 shrink-0">
+                        <button onClick={() => handleFeedback('helpful')}
+                          className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all text-base ${currentRecord?.feedback === 'helpful' ? 'bg-emerald-50 border-emerald-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
+                          title="도움이 됐어요">👍</button>
+                        <button onClick={() => handleFeedback('not_helpful')}
+                          className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all text-base ${currentRecord?.feedback === 'not_helpful' ? 'bg-rose-50 border-rose-200' : 'border-zinc-200 hover:bg-zinc-50'}`}
+                          title="개선이 필요해요">👎</button>
+                        <div className="w-px h-6 bg-zinc-100 mx-1"></div>
+                        <button onClick={handleSave}
+                          className={`w-9 h-9 flex items-center justify-center rounded-xl border transition-all ${currentRecord?.saved ? 'bg-amber-50 border-amber-200 text-amber-500' : 'border-zinc-200 hover:bg-zinc-50 text-zinc-400'}`}
+                          title={currentRecord?.saved ? '저장됨' : '저장하기'}>★</button>
+                        <button onClick={() => { setAnalysis(null); setCurrentQuery(''); setActiveHistoryId(null); }}
+                          className="w-9 h-9 flex items-center justify-center rounded-xl border border-zinc-200 hover:bg-zinc-50 text-zinc-400 transition-all text-sm"
+                          title="초기화">✕</button>
+                      </div>
+                    )}
                   </div>
                 )}
               </section>

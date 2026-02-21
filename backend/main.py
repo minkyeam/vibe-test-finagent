@@ -264,6 +264,7 @@ def get_liquidity_data():
 class AnalysisRequest(BaseModel):
     query: str
     model: str = "gemini"
+    history: Optional[List[dict]] = []
 
 
 @app.post("/api/analyze")
@@ -414,6 +415,12 @@ async def analyze_macro(request: AnalysisRequest):
     print("[Search] All parallel searches done.")
 
     # ── 3. LLM 스트리밍 (Provider 내부 Fallback 포함) ──
+    chat_history_str = ""
+    if request.history:
+        for msg in request.history[-5:]:  # 최근 5개 메시지만 컨텍스트로 사용
+            role = "사용자" if msg.get("role") == "user" else "AI"
+            chat_history_str += f"{role}: {msg.get('content')}\n"
+
     chain_inputs = {
         "market_data": market_str,
         "news_summary": news_summary,
@@ -422,6 +429,7 @@ async def analyze_macro(request: AnalysisRequest):
         "macro_signals": macro_signals,
         "institutional_context": _institutional_context,
         "liquidity_context": liquidity_context,
+        "chat_history": chat_history_str,
         "user_query": user_query,
     }
 
