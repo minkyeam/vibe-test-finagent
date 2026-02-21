@@ -93,7 +93,7 @@ def fetch_market_data_internal():
     try:
         # yf.download에 세션 전달 및 벌크 패치
         ticker_list = list(symbols.keys())
-        df = yf.download(ticker_list, period="2d", interval="1d", group_by='ticker', session=_session)
+        df = yf.download(ticker_list, period="2d", interval="1d", group_by='ticker')
         
         for symbol, name in symbols.items():
             try:
