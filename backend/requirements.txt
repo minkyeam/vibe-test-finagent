@@ -15,3 +15,5 @@ httpx
 pydantic
 pytz
 lxml
+python-multipart
+Pillow

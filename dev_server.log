@@ -1,0 +1,49 @@
+
+> frontend@0.1.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 13.7s
+ ○ Compiling /api/auth/[...nextauth] ...
+ ✓ Compiled /api/auth/[...nextauth] in 23.7s (271 modules)
+ ✓ Compiled in 1637ms (271 modules)
+[next-auth][warn][DEBUG_ENABLED] 
+https://next-auth.js.org/warnings#debug_enabled
+ GET /api/auth/providers 200 in 32395ms
+ ○ Compiling / ...
+ ⨯ app/layout.tsx
+`next/font` error:
+Unknown font `Geist`
+ ⨯ app/layout.tsx
+`next/font` error:
+Unknown font `Geist`
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/user/Documents/New project/금융에이전트PoC/.next/cache/webpack/client-development-fallback/0.pack.gz_' -> '/Users/user/Documents/New project/금융에이전트PoC/.next/cache/webpack/client-development-fallback/0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/user/Documents/New project/금융에이전트PoC/.next/cache/webpack/client-development-fallback/0.pack.gz_' -> '/Users/user/Documents/New project/금융에이전트PoC/.next/cache/webpack/client-development-fallback/0.pack.gz'
+ ⨯ app/layout.tsx
+`next/font` error:
+Unknown font `Geist`
+ GET / 500 in 184264ms
+ GET / 500 in 55313ms
+ ⨯ app/layout.tsx
+`next/font` error:
+Unknown font `Geist`
+ GET / 500 in 454ms
+ ⨯ app/layout.tsx
+`next/font` error:
+Unknown font `Geist`
+ ⨯ app/layout.tsx
+`next/font` error:
+Unknown font `Geist`
+ ⨯ app/layout.tsx
+`next/font` error:
+Unknown font `Geist`
+ ⨯ app/layout.tsx
+`next/font` error:
+Unknown font `Geist`
+ ⨯ app/layout.tsx
+`next/font` error:
+Unknown font `Geist`

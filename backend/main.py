@@ -16,6 +16,10 @@ from langchain_core.output_parsers import StrOutputParser
 from prompts import MACRO_ANALYSIS_PROMPT
 import json
 import sqlite3
+import base64
+from io import BytesIO
+from fastapi import File, UploadFile, Form
+from langchain_core.messages import HumanMessage
 
 # Load environment variables
 load_dotenv()
@@ -59,6 +63,25 @@ try:
         print(f"[RAG] Loaded {len(_report_data.get('reports', []))} institutional reports.")
 except Exception as _rag_e:
     print(f"[RAG] Load error: {_rag_e}")
+
+# ── Database Migration: Add user_email column ──
+def migrate_db():
+    db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        # Check if user_email column exists
+        c.execute("PRAGMA table_info(portfolio)")
+        columns = [info[1] for info in c.fetchall()]
+        if "user_email" not in columns:
+            print("[DB] Migrating: Adding user_email column...")
+            c.execute("ALTER TABLE portfolio ADD COLUMN user_email TEXT")
+            conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB Migration Error] {e}")
+
+migrate_db()
 
 
 class MarketData(BaseModel):
@@ -262,12 +285,15 @@ def get_liquidity_data():
     return {"data": data}
 
 
-def get_db_portfolio():
+def get_db_portfolio(email: str = None):
     db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
     try:
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
-        c.execute("SELECT ticker, name, quantity, buy_price, current_price, profit_krw FROM portfolio")
+        if email:
+            c.execute("SELECT ticker, name, quantity, buy_price, current_price, profit_krw FROM portfolio WHERE user_email = ?", (email,))
+        else:
+            c.execute("SELECT ticker, name, quantity, buy_price, current_price, profit_krw FROM portfolio LIMIT 20")
         rows = c.fetchall()
         conn.close()
         return rows
@@ -276,8 +302,8 @@ def get_db_portfolio():
         return []
 
 @app.get("/api/portfolio")
-def fetch_portfolio():
-    rows = get_db_portfolio()
+def fetch_portfolio(email: Optional[str] = None):
+    rows = get_db_portfolio(email)
     data = []
     for r in rows:
         data.append({
@@ -290,11 +316,92 @@ def fetch_portfolio():
         })
     return {"data": data}
 
+class PortfolioItem(BaseModel):
+    ticker: str
+    name: str = ""
+    quantity: float
+    buy_price: Optional[float] = 0.0
+    current_price: Optional[float] = 0.0
+    profit_krw: Optional[int] = 0
+
+class PortfolioUpdateRequest(BaseModel):
+    email: str
+    items: List[PortfolioItem]
+
+@app.post("/api/portfolio/update")
+async def update_portfolio(request: PortfolioUpdateRequest):
+    db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        
+        # Delete existing items for this user
+        c.execute("DELETE FROM portfolio WHERE user_email = ?", (request.email,))
+        
+        # Insert new items
+        for item in request.items:
+            c.execute('''
+                INSERT INTO portfolio (user_email, ticker, name, quantity, buy_price, current_price, profit_krw)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (request.email, item.ticker, item.name, item.quantity, item.buy_price, item.current_price, item.profit_krw))
+        
+        conn.commit()
+        conn.close()
+        return {"status": "success", "message": f"Updated {len(request.items)} items for {request.email}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/api/portfolio/parse-image")
+async def parse_portfolio_image(file: UploadFile = File(...)):
+    # Gemini Vision을 이용해 이미지에서 자산 데이터를 추출합니다.
+    try:
+        content = await file.read()
+        image_base64 = base64.b64encode(content).decode("utf-8")
+        
+        # Use Gemini 2.0 Flash for vision
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
+            google_api_key=os.getenv("GOOGLE_API_KEY"),
+            temperature=0,
+        )
+        
+        prompt = """보여지는 이미지(주식/금융 자산 잔고 화면)에서 보유 자산 목록을 추출해줘.
+결과는 반드시 다음과 같은 JSON 형식의 리스트로만 응답해:
+[
+  {"ticker": "AAPL", "name": "애플", "quantity": 10.5, "buy_price": 200.0, "current_price": 230.0, "profit_krw": 300000},
+  ...
+]
+- 티커(ticker)를 알 수 없으면 공백이나 추측되는 값으로 넣어줘.
+- 수량(quantity)은 숫자만 포함해.
+- 수익(profit_krw)은 대략적인 원화 환산 금액으로 추출해.
+- 만약 이미지가 잔고 화면이 아니거나 데이터를 추출할 수 없으면 빈 리스트 [] 를 응답해."""
+
+        message = HumanMessage(
+            content=[
+                {"type": "text", "text": prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
+                },
+            ]
+        )
+        
+        response = llm.invoke([message])
+        content_str = response.content.replace("```json", "").replace("```", "").strip()
+        parsed_data = json.loads(content_str)
+        
+        return {"data": parsed_data}
+    except Exception as e:
+        print(f"[Parse Image Error] {e}")
+        return {"status": "error", "message": str(e)}
+
 class AnalysisRequest(BaseModel):
     query: str
     model: str = "gemini"
     history: Optional[List[dict]] = []
     user_portfolio: str = ""
+    email: Optional[str] = None
 
 
 @app.post("/api/analyze")

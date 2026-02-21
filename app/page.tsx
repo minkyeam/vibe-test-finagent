@@ -76,6 +76,9 @@ export default function Home() {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [issueLog, setIssueLog] = useState<IssueLogItem[]>([]);
   const [userPortfolio, setUserPortfolio] = useState('');
+  const [isPortfolioModalOpen, setIsPortfolioModalOpen] = useState(false);
+  const [portfolioItems, setPortfolioItems] = useState<any[]>([]);
+  const [isParsingImage, setIsParsingImage] = useState(false);
   const mainRef = useRef<HTMLElement>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -119,11 +122,15 @@ export default function Home() {
   }, []);
 
   const fetchDbPortfolio = useCallback(() => {
-    fetch('/api/portfolio')
+    const email = session?.user?.email;
+    const url = email ? `/api/portfolio?email=${encodeURIComponent(email)}` : '/api/portfolio';
+
+    fetch(url)
       .then((res) => res.json())
       .then((json) => {
         if (json.data && json.data.length > 0) {
-          const portStr = json.data.map((i: any) => `${i.name}(${i.ticker}) ${i.quantity.toFixed(2)}주`).join(', ');
+          setPortfolioItems(json.data);
+          const portStr = json.data.map((i: any) => `${i.name || i.ticker}(${i.ticker}) ${i.quantity.toFixed(2)}주`).join(', ');
           setUserPortfolio(portStr);
           localStorage.setItem('user_portfolio', portStr);
         } else {
@@ -136,12 +143,12 @@ export default function Home() {
         const savedPortfolio = localStorage.getItem('user_portfolio');
         if (savedPortfolio) setUserPortfolio(savedPortfolio);
       });
-  }, []);
+  }, [session?.user?.email]);
 
   useEffect(() => {
     fetchMarketData();
     fetchLiquidityData();
-    fetchDbPortfolio();
+    if (session) fetchDbPortfolio();
     const pollInterval = setInterval(fetchMarketData, 30_000);
     const liquidityPollInterval = setInterval(fetchLiquidityData, 60 * 60_000);
     const countdownInterval = setInterval(() => {
@@ -210,7 +217,13 @@ export default function Home() {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userQuery, model: selectedModel, history: apiHistory, user_portfolio: userPortfolio }),
+        body: JSON.stringify({
+          query: userQuery,
+          model: selectedModel,
+          history: apiHistory,
+          user_portfolio: userPortfolio,
+          email: session?.user?.email
+        }),
         signal: controller.signal,
       });
 
@@ -459,6 +472,21 @@ export default function Home() {
             </button>
           </div>
 
+          {/* Portfolio Update Button */}
+          {sidebarOpen && (
+            <div className="px-2 py-2 border-b border-zinc-50 shrink-0">
+              <button
+                onClick={() => setIsPortfolioModalOpen(true)}
+                className="w-full h-10 flex items-center gap-2.5 px-3 rounded-xl transition-all text-xs font-bold text-white bg-zinc-900 hover:bg-zinc-800 shadow-sm"
+              >
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+                <span>포트폴리오 업데이트</span>
+              </button>
+            </div>
+          )}
+
           {/* New analysis button */}
           <div className="px-2 py-2 border-b border-zinc-50 shrink-0">
             <button
@@ -546,23 +574,6 @@ export default function Home() {
                   </button>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* User Portfolio Input (Bottom of Sidebar) */}
-          {sidebarOpen && (
-            <div className="p-4 border-t border-zinc-50 bg-zinc-50/30 shrink-0">
-              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">My Portfolio (Micro)</label>
-              <textarea
-                className="w-full h-20 text-xs px-3 py-2 border border-zinc-200 rounded-xl bg-white focus:border-zinc-400 custom-scrollbar resize-none placeholder:text-zinc-300 transition-all font-medium text-zinc-700"
-                placeholder="보유 자산이나 관심 종목을 입력하세요. (예: 삼성전자, 애플, 테슬라)"
-                value={userPortfolio}
-                onChange={(e) => {
-                  setUserPortfolio(e.target.value);
-                  localStorage.setItem('user_portfolio', e.target.value);
-                }}
-              />
-              <p className="text-[9px] text-zinc-400 mt-2 leading-relaxed">입력하신 종목 위주로 거시 시황의 영향을 분석합니다.</p>
             </div>
           )}
 
@@ -995,6 +1006,185 @@ export default function Home() {
                 className="ml-1 text-zinc-300 hover:text-zinc-500 transition-colors shrink-0 text-xs leading-none mt-0.5">✕</button>
             </div>
           ))}
+        </div>
+      )}
+      {/* ── Portfolio Management Modal ── */}
+      {isPortfolioModalOpen && (
+        <div className="fixed inset-0 z-[500] flex items-center justify-center p-4 bg-zinc-900/40 backdrop-blur-md fade-in">
+          <div className="bg-white w-full max-w-2xl rounded-[32px] shadow-2xl overflow-hidden border border-zinc-100 flex flex-col max-h-[90vh]">
+            <div className="px-8 py-6 border-b border-zinc-50 flex items-center justify-between shrink-0">
+              <div>
+                <h2 className="text-xl font-black text-zinc-900 tracking-tight">포트폴리오 업데이트</h2>
+                <p className="text-xs text-zinc-400 mt-1">이미지를 업로드하여 자산을 자동으로 등록하세요.</p>
+              </div>
+              <button onClick={() => setIsPortfolioModalOpen(false)} className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-zinc-50 transition-colors text-zinc-300 hover:text-zinc-900 text-xl overflow-hidden">✕</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+              <div className="mb-8">
+                <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-3">이미지 분석 (AI 파싱)</label>
+                <div className="relative group">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+
+                      setIsParsingImage(true);
+                      const formData = new FormData();
+                      formData.append('file', file);
+
+                      try {
+                        const res = await fetch('/api/portfolio/parse-image', {
+                          method: 'POST',
+                          body: formData
+                        });
+                        const json = await res.json();
+                        if (json.data) {
+                          setPortfolioItems(json.data);
+                        }
+                      } catch (err) {
+                        console.error("Image parsing failed", err);
+                      } finally {
+                        setIsParsingImage(false);
+                      }
+                    }}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                  />
+                  <div className={`h-32 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center transition-all ${isParsingImage ? 'border-zinc-100 bg-zinc-50' : 'border-zinc-100 hover:border-zinc-300 hover:bg-zinc-50/50'}`}>
+                    {isParsingImage ? (
+                      <>
+                        <div className="w-6 h-6 border-2 border-zinc-200 border-t-zinc-900 rounded-full animate-spin mb-3"></div>
+                        <p className="text-xs font-semibold text-zinc-500">AI가 이미지를 분석하고 있습니다...</p>
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-8 h-8 text-zinc-300 mb-2 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <p className="text-xs font-medium text-zinc-400">클릭하거나 이미지를 드래그하여 업로드</p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {portfolioItems.length > 0 && (
+                <div className="fade-in">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">분석된 자산 목록 ({portfolioItems.length})</label>
+                    <button
+                      onClick={() => setPortfolioItems([...portfolioItems, { ticker: '', name: '', quantity: 0, buy_price: 0, current_price: 0, profit_krw: 0 }])}
+                      className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 transition-colors"
+                    >
+                      + 자산 직접 추가
+                    </button>
+                  </div>
+                  <div className="border border-zinc-100 rounded-2xl overflow-hidden shadow-sm">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="bg-zinc-50/50 border-b border-zinc-100">
+                          <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase">티커</th>
+                          <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase">이름</th>
+                          <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase">수량</th>
+                          <th className="px-4 py-3 text-[10px] font-bold text-zinc-400 uppercase text-right">관리</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-zinc-50">
+                        {portfolioItems.map((item, idx) => (
+                          <tr key={idx} className="hover:bg-zinc-50/40 transition-colors">
+                            <td className="px-4 py-2.5">
+                              <input
+                                className="w-full bg-transparent text-xs font-bold text-zinc-800 focus:outline-none"
+                                value={item.ticker}
+                                onChange={(e) => {
+                                  const newItems = [...portfolioItems];
+                                  newItems[idx].ticker = e.target.value.toUpperCase();
+                                  setPortfolioItems(newItems);
+                                }}
+                              />
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <input
+                                className="w-full bg-transparent text-xs text-zinc-500 focus:outline-none"
+                                value={item.name}
+                                onChange={(e) => {
+                                  const newItems = [...portfolioItems];
+                                  newItems[idx].name = e.target.value;
+                                  setPortfolioItems(newItems);
+                                }}
+                              />
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <input
+                                type="number"
+                                className="w-full bg-transparent text-xs font-mono text-zinc-600 focus:outline-none"
+                                value={item.quantity}
+                                onChange={(e) => {
+                                  const newItems = [...portfolioItems];
+                                  newItems[idx].quantity = parseFloat(e.target.value);
+                                  setPortfolioItems(newItems);
+                                }}
+                              />
+                            </td>
+                            <td className="px-4 py-2.5 text-right">
+                              <button
+                                onClick={() => setPortfolioItems(portfolioItems.filter((_, i) => i !== idx))}
+                                className="text-rose-400 hover:text-rose-600 transition-colors text-xs"
+                              >
+                                삭제
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-8 py-6 bg-zinc-50/50 border-t border-zinc-100 flex items-center justify-end gap-3 shrink-0">
+              <button
+                onClick={() => setIsPortfolioModalOpen(false)}
+                className="px-5 h-11 rounded-xl text-xs font-bold text-zinc-400 hover:text-zinc-900 transition-colors"
+              >
+                취소
+              </button>
+              <button
+                onClick={async () => {
+                  if (!session?.user?.email) {
+                    alert("로그인이 필요합니다.");
+                    return;
+                  }
+
+                  try {
+                    const res = await fetch('/api/portfolio/update', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        email: session.user.email,
+                        items: portfolioItems
+                      })
+                    });
+                    const json = await res.json();
+                    if (json.status === 'success') {
+                      setIsPortfolioModalOpen(false);
+                      pushToast("포트폴리오가 성공적으로 업데이트되었습니다.", 'info');
+                      fetchDbPortfolio();
+                    }
+                  } catch (err) {
+                    console.error("Save failed", err);
+                  }
+                }}
+                disabled={portfolioItems.length === 0}
+                className="px-8 h-11 rounded-xl text-xs font-bold text-white bg-zinc-900 hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-lg shadow-zinc-200"
+              >
+                저장 및 적용
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
