@@ -101,9 +101,17 @@ def fetch_market_data_internal():
                 hist = df[symbol]
                 if hist.empty or len(hist) < 1: continue
                 
+                import math
                 current = hist['Close'].iloc[-1]
                 prev = hist['Close'].iloc[-2] if len(hist) > 1 else current
+                
+                # Check for NaN values from yfinance
+                if math.isnan(current):
+                    continue
+                    
                 change = ((current - prev) / prev) * 100 if prev != 0 else 0
+                if math.isnan(change):
+                    change = 0.0
                 
                 data.append({
                     "symbol": symbol,
