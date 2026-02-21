@@ -91,21 +91,38 @@ def fetch_market_data_internal():
     signals = []
 
     try:
-        # yf.download에 세션 전달 및 벌크 패치
+        # yf.download에 세션 전달 및 벌크 패치 (5일치로 늘려서 휴장일 대비)
         ticker_list = list(symbols.keys())
-        df = yf.download(ticker_list, period="2d", interval="1d", group_by='ticker')
+        df = yf.download(ticker_list, period="5d", interval="1d", group_by='ticker')
+        
+        today_date = datetime.now(pytz.timezone('Asia/Seoul')).date()
         
         for symbol, name in symbols.items():
             try:
                 if symbol not in df.columns.levels[0]: continue
-                hist = df[symbol]
+                
+                # NaN 값을 지우고 유효한 데이터만 남김
+                hist = df[symbol].dropna(subset=['Close'])
                 if hist.empty or len(hist) < 1: continue
                 
                 import math
-                current = hist['Close'].iloc[-1]
-                prev = hist['Close'].iloc[-2] if len(hist) > 1 else current
+                current = float(hist['Close'].iloc[-1])
+                prev = float(hist['Close'].iloc[-2]) if len(hist) > 1 else current
                 
-                # Check for NaN values from yfinance
+                last_date_obj = hist.index[-1].date()
+                last_date_str = last_date_obj.strftime('%m/%d')
+                
+                # 휴장 여부 판단 (단순 기준: 주말 감안하여 최근 영업일이 어제나 오늘이 아니면 휴장으로 표기)
+                delta_days = (today_date - last_date_obj).days
+                is_closed = False
+                if today_date.weekday() == 0:  # 월요일 (금요일은 3일 전)
+                    is_closed = (delta_days > 3)
+                elif today_date.weekday() == 1:  # 화요일 (금요일은 4일 전, 사실 화요일이면 월요일이 1일 전)
+                    # if last date is older than Monday
+                    is_closed = (delta_days > 1) 
+                else:
+                    is_closed = (delta_days > 1)
+                
                 if math.isnan(current):
                     continue
                     
@@ -116,8 +133,10 @@ def fetch_market_data_internal():
                 data.append({
                     "symbol": symbol,
                     "name": name,
-                    "price": round(float(current), 2),
-                    "change_percent": round(float(change), 2)
+                    "price": round(current, 2),
+                    "change_percent": round(change, 2),
+                    "date": last_date_str,
+                    "is_closed": is_closed
                 })
             except Exception:
                 continue

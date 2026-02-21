@@ -8,6 +8,8 @@ interface MarketData {
   name: string;
   price: number;
   change_percent: number;
+  date?: string;
+  is_closed?: boolean;
 }
 
 interface LiquidityItem {
@@ -303,14 +305,22 @@ export default function Home() {
 
           <div className="flex-1 overflow-hidden relative mx-4">
             <div className="animate-marquee whitespace-nowrap flex items-center gap-12 py-1">
-              {[...data, ...data].map((item, idx) => (
-                <div key={`${item.symbol}-${idx}`} className="flex items-center gap-3 group cursor-default">
-                  <span className="font-semibold text-zinc-800 text-xs group-hover:text-emerald-600 transition-colors">{item.name}</span>
-                  <span className="text-zinc-400 font-mono text-xs">{item.price.toLocaleString()}</span>
-                  <span className={`text-[11px] font-bold ${item.change_percent >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                    {item.change_percent >= 0 ? '▲' : '▼'} {Math.abs(item.change_percent).toFixed(2)}%
-                  </span>
-                </div>
+              {[...data, ...liquidityData.map(l => ({ ...l, isLiquidity: true })), ...data, ...liquidityData.map(l => ({ ...l, isLiquidity: true }))].map((item: any, idx) => (
+                item.isLiquidity ? (
+                  <div key={`liq-${item.series}-${idx}`} className="flex items-center gap-3 group cursor-default">
+                    <span className="font-semibold text-blue-800 text-xs group-hover:text-blue-600 transition-colors">{item.series}</span>
+                    <span className="text-zinc-500 font-mono text-xs">{item.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                    <span className="text-[10px] text-zinc-400">{item.unit}</span>
+                  </div>
+                ) : (
+                  <div key={`${item.symbol}-${idx}`} className="flex items-center gap-3 group cursor-default">
+                    <span className="font-semibold text-zinc-800 text-xs group-hover:text-emerald-600 transition-colors">{item.name}</span>
+                    <span className="text-zinc-400 font-mono text-xs">{item.price.toLocaleString()}</span>
+                    <span className={`text-[11px] font-bold ${item.change_percent >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                      {item.change_percent >= 0 ? '▲' : '▼'} {Math.abs(item.change_percent).toFixed(2)}%
+                    </span>
+                  </div>
+                )
               ))}
             </div>
           </div>
@@ -467,8 +477,21 @@ export default function Home() {
                     <div className="text-sm font-semibold text-zinc-900 tracking-tight tabular-nums leading-tight">
                       {item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </div>
-                    <div className={`text-[10px] font-bold mt-0.5 ${item.change_percent >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                      {item.change_percent >= 0 ? '+' : ''}{item.change_percent.toFixed(2)}%
+                    <div className="flex items-center justify-between mt-0.5">
+                      <div className={`text-[10px] font-bold ${item.change_percent >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                        {item.change_percent >= 0 ? '+' : ''}{item.change_percent.toFixed(2)}%
+                      </div>
+                      {item.is_closed ? (
+                        <span className="text-[8px] font-bold px-1.5 py-0.5 bg-amber-50 text-amber-600 rounded">
+                          휴장 ({item.date})
+                        </span>
+                      ) : (
+                        item.date && (
+                          <span className="text-[8px] text-zinc-400">
+                            {item.date} 기준
+                          </span>
+                        )
+                      )}
                     </div>
                   </div>
                 ))}
