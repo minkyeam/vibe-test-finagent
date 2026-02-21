@@ -23,6 +23,7 @@ const handler = NextAuth({
     },
     secret: process.env.NEXTAUTH_SECRET || "finagent-secret-4b4d6b67-9c60-4b2a-bd1e-06ea8f5a28b0",
     debug: true,
+    trustHost: true,
 })
 
 export { handler as GET, handler as POST }
