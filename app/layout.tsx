@@ -17,6 +17,8 @@ export const metadata: Metadata = {
   description: "Institutional Grade AI-powered macro research",
 };
 
+import AuthProvider from "./components/AuthProvider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -31,7 +33,9 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

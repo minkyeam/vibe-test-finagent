@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "next": "latest",
+    "next-auth": "^4.24.13",
     "react": "rc",
     "react-dom": "rc",
     "react-markdown": "^10.1.0",
