@@ -73,6 +73,7 @@ export default function Home() {
   const [headerScrolled, setHeaderScrolled] = useState(false);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [issueLog, setIssueLog] = useState<IssueLogItem[]>([]);
+  const [userPortfolio, setUserPortfolio] = useState('');
   const mainRef = useRef<HTMLElement>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -133,6 +134,9 @@ export default function Home() {
     const saved = localStorage.getItem('analysis_history');
     if (saved) setHistory(JSON.parse(saved));
 
+    const savedPortfolio = localStorage.getItem('user_portfolio');
+    if (savedPortfolio) setUserPortfolio(savedPortfolio);
+
     return () => {
       clearInterval(pollInterval);
       clearInterval(liquidityPollInterval);
@@ -185,7 +189,7 @@ export default function Home() {
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: userQuery, model: selectedModel, history: apiHistory }),
+        body: JSON.stringify({ query: userQuery, model: selectedModel, history: apiHistory, user_portfolio: userPortfolio }),
         signal: controller.signal,
       });
 
@@ -449,6 +453,23 @@ export default function Home() {
               )
             )}
           </div>
+
+          {/* User Portfolio Input (Bottom of Sidebar) */}
+          {sidebarOpen && (
+            <div className="p-4 border-t border-zinc-50 bg-zinc-50/30 shrink-0">
+              <label className="block text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-2">My Portfolio (Micro)</label>
+              <textarea
+                className="w-full h-20 text-xs px-3 py-2 border border-zinc-200 rounded-xl bg-white focus:border-zinc-400 custom-scrollbar resize-none placeholder:text-zinc-300 transition-all font-medium text-zinc-700"
+                placeholder="보유 자산이나 관심 종목을 입력하세요. (예: 삼성전자, 애플, 테슬라)"
+                value={userPortfolio}
+                onChange={(e) => {
+                  setUserPortfolio(e.target.value);
+                  localStorage.setItem('user_portfolio', e.target.value);
+                }}
+              />
+              <p className="text-[9px] text-zinc-400 mt-2 leading-relaxed">입력하신 종목 위주로 거시 시황의 영향을 분석합니다.</p>
+            </div>
+          )}
 
           {/* Sidebar Footer */}
           {sidebarOpen && (

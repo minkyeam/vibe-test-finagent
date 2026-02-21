@@ -265,6 +265,7 @@ class AnalysisRequest(BaseModel):
     query: str
     model: str = "gemini"
     history: Optional[List[dict]] = []
+    user_portfolio: str = ""
 
 
 @app.post("/api/analyze")
@@ -430,6 +431,7 @@ async def analyze_macro(request: AnalysisRequest):
         "institutional_context": _institutional_context,
         "liquidity_context": liquidity_context,
         "chat_history": chat_history_str,
+        "user_portfolio": request.user_portfolio or "현재 등록된 보유 자산이 없습니다.",
         "user_query": user_query,
     }
 
