@@ -1,4 +1,4 @@
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 
 MACRO_ANALYSIS_PROMPT = PromptTemplate(
     input_variables=["market_data", "news_summary", "bok_policy", "fed_policy", "macro_signals", "institutional_context", "liquidity_context", "user_query"],
