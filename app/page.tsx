@@ -626,13 +626,13 @@ export default function Home() {
                     <p className="text-xs text-zinc-200 mt-2">IB 리포트 + 실시간 데이터 기반 · Zero Hallucination Policy</p>
                   </div>
                 ) : (
-                  <div className="max-w-none flex flex-col gap-12">
+                  <div className="max-w-3xl mx-auto flex flex-col gap-12 w-full">
                     {currentRecord?.messages.map((msg, i) => (
-                      <div key={msg.id} className="fade-in">
+                      <div key={msg.id} className="fade-in w-full">
                         {msg.role === 'user' ? (
                           <div className="flex items-center gap-3 mb-2">
-                            <div className="w-1 h-6 bg-zinc-950 rounded-full shrink-0"></div>
-                            <h2 className="text-xl font-medium tracking-tight text-zinc-950 min-w-0 break-words flex-1 leading-snug">{msg.content}</h2>
+                            <div className="w-1 h-5 bg-zinc-950 rounded-full shrink-0"></div>
+                            <h2 className="text-lg font-medium tracking-tight text-zinc-950 min-w-0 break-words flex-1 leading-snug">{msg.content}</h2>
                           </div>
                         ) : (
                           <div className="ml-4 pl-4 border-l border-zinc-100">
@@ -640,13 +640,13 @@ export default function Home() {
                               <span className={`w-2 h-2 rounded-full ${currentRecord.model === 'gemini' ? 'bg-blue-500' : currentRecord.model === 'gpt' ? 'bg-emerald-500' : 'bg-purple-500'}`}></span>
                               <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-widest">{currentRecord.model}</span>
                             </div>
-                            <article className="prose prose-zinc max-w-none
-                              prose-h2:text-zinc-950 prose-h2:font-bold prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-6 prose-h2:tracking-tight prose-h2:border-b prose-h2:border-zinc-100 prose-h2:pb-4
-                              prose-h3:text-zinc-500 prose-h3:text-xs prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:mt-10
-                              prose-p:text-zinc-700 prose-p:text-lg prose-p:leading-[1.8] prose-p:mb-6
+                            <article className="prose prose-zinc max-w-none w-full
+                              prose-h2:text-zinc-950 prose-h2:font-bold prose-h2:text-xl prose-h2:mt-10 prose-h2:mb-5 prose-h2:tracking-tight prose-h2:border-b prose-h2:border-zinc-100 prose-h2:pb-3
+                              prose-h3:text-zinc-500 prose-h3:text-[10px] prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:mt-8
+                              prose-p:text-zinc-700 prose-p:text-base prose-p:leading-[1.75] prose-p:mb-5
                               prose-strong:text-black prose-strong:font-black
-                              prose-li:text-zinc-700 prose-li:text-base prose-li:my-2
-                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-5 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-sm prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
+                              prose-li:text-zinc-700 prose-li:text-sm prose-li:my-1.5
+                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-4 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-[13px] prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
                               <ReactMarkdown>{msg.content}</ReactMarkdown>
                             </article>
                           </div>
@@ -655,10 +655,10 @@ export default function Home() {
                     ))}
 
                     {analyzing && (
-                      <div className="fade-in">
+                      <div className="fade-in w-full">
                         <div className="flex items-center gap-3 mb-2">
-                          <div className="w-1 h-6 bg-zinc-950 rounded-full shrink-0"></div>
-                          <h2 className="text-xl font-medium tracking-tight text-zinc-950 min-w-0 break-words flex-1 leading-snug">{currentQuery}</h2>
+                          <div className="w-1 h-5 bg-zinc-950 rounded-full shrink-0"></div>
+                          <h2 className="text-lg font-medium tracking-tight text-zinc-950 min-w-0 break-words flex-1 leading-snug">{currentQuery}</h2>
                         </div>
                         <div className="ml-4 pl-4 border-l border-zinc-100">
                           <div className="flex items-center gap-3 mb-4 pb-4 border-b border-zinc-50 flex-wrap">
@@ -668,13 +668,13 @@ export default function Home() {
                               <span className="w-2 h-2 border border-amber-400 border-t-transparent rounded-full spin"></span>분석 중
                             </span>
                           </div>
-                          <article className="prose prose-zinc max-w-none
-                              prose-h2:text-zinc-950 prose-h2:font-bold prose-h2:text-2xl prose-h2:mt-12 prose-h2:mb-6 prose-h2:tracking-tight prose-h2:border-b prose-h2:border-zinc-100 prose-h2:pb-4
-                              prose-h3:text-zinc-500 prose-h3:text-xs prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:mt-10
-                              prose-p:text-zinc-700 prose-p:text-lg prose-p:leading-[1.8] prose-p:mb-6
+                          <article className="prose prose-zinc max-w-none w-full
+                              prose-h2:text-zinc-950 prose-h2:font-bold prose-h2:text-xl prose-h2:mt-10 prose-h2:mb-5 prose-h2:tracking-tight prose-h2:border-b prose-h2:border-zinc-100 prose-h2:pb-3
+                              prose-h3:text-zinc-500 prose-h3:text-[10px] prose-h3:font-bold prose-h3:uppercase prose-h3:tracking-[0.2em] prose-h3:mt-8
+                              prose-p:text-zinc-700 prose-p:text-base prose-p:leading-[1.75] prose-p:mb-5
                               prose-strong:text-black prose-strong:font-black
-                              prose-li:text-zinc-700 prose-li:text-base prose-li:my-2
-                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-5 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-sm prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
+                              prose-li:text-zinc-700 prose-li:text-sm prose-li:my-1.5
+                              prose-blockquote:border-l-0 prose-blockquote:bg-white prose-blockquote:p-4 prose-blockquote:rounded-2xl prose-blockquote:border prose-blockquote:border-zinc-100 prose-blockquote:shadow-sm prose-blockquote:not-italic prose-blockquote:text-zinc-600 prose-blockquote:text-[13px] prose-blockquote:my-4 prose-blockquote:transition-all prose-blockquote:hover:shadow-md prose-blockquote:hover:border-zinc-200">
                             <ReactMarkdown>{analysis ?? ""}</ReactMarkdown>
                             <span className="cursor-blink"></span>
                           </article>
