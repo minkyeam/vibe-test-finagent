@@ -783,14 +783,14 @@ class StressTestRequest(BaseModel):
 async def portfolio_stress_test(req: StressTestRequest):
     """사용자 포트폴리오 기반 거시경제 스트레스 테스트 및 리밸런싱 제안"""
     try:
-        portfolio_res = get_db_portfolio(req.email)
+        portfolio_res = fetch_portfolio(req.email)
         items = portfolio_res.get("data", [])
         
         if not items:
             return {"error": "포트폴리오 데이터가 없습니다."}
             
         portfolio_text = "\n".join([
-            f"- {i['ticker']}: {i['quantity']}주 (평단가: {i['average_buy_price']}, 현재가: {i['current_price']})"
+            f"- {i['ticker']}: {i['quantity']}주 (평단가: {i['buy_price']}, 현재가: {i['current_price']})"
             for i in items
         ])
         
