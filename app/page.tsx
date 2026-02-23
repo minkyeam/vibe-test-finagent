@@ -1268,7 +1268,11 @@ export default function Home() {
                             <p className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.1em] mb-2">Total Evaluation</p>
                             <div className="flex items-baseline gap-2">
                               <span className="text-4xl font-black tracking-tight">
-                                {formatCurrency(portfolioItems.reduce((acc, i) => acc + (i.quantity * (i.current_price || 0)), 0)).replace(/[$₩]/, '')}
+                                {formatCurrency(portfolioItems.reduce((acc, i) => {
+                                  const isKrx = /^\d+/.test(i.ticker);
+                                  const val = i.quantity * (i.current_price || 0);
+                                  return acc + (isKrx ? val / usdKrwRate : val);
+                                }, 0), true).replace(/[$₩]/, '')}
                               </span>
                               <span className="text-xs font-bold text-zinc-600 uppercase">{portfolioCurrency}</span>
                             </div>
