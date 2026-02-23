@@ -108,6 +108,23 @@ def migrate_db():
             )
         """)
         
+        # Create macro alerts table for real-time notifications
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS macro_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                message TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                trigger_data TEXT,
+                affected_sectors TEXT,
+                recommended_actions TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT TRUE,
+                user_email TEXT
+            )
+        """)
+        
         conn.commit()
         conn.close()
         print("[DB] Migration completed successfully")
@@ -291,6 +308,11 @@ FRED_LIQUIDITY_SERIES = {
     "DFF":       {"name": "Effective Fed Funds Rate",  "unit": "%",   "scale": 1.0,  "desc": "실효 연방기금금리 (FOMC 정책 반영)"},
     # M2 통화량 — 단위: 10억달러($B)
     "M2SL":      {"name": "M2 Money Supply",           "unit": "$B",  "scale": 1.0,  "desc": "M2 광의 통화량 (시중 유동성 총량)"},
+    
+    # ── 추가 매크로 지표 (PRD 3.1) ──
+    "CPIAUCSL":  {"name": "US CPI (Inflation)",        "unit": "Index", "scale": 1.0, "desc": "미국 소비자물가지수 (인플레이션 지표)"},
+    "FEDFUNDS":  {"name": "Federal Funds Rate",        "unit": "%",   "scale": 1.0, "desc": "월간 실효 연방기금금리"},
+    "UNRATE":    {"name": "Unemployment Rate",         "unit": "%",   "scale": 1.0, "desc": "미국 실업률 (고용 및 경기침체 지표)"},
 }
 
 
@@ -317,9 +339,75 @@ def fetch_fred_series(series_id: str):
         return None, None
 
 
+def detect_macro_event(series_id: str, meta: dict, current_value: float, mom_change: float, date: str) -> Optional[dict]:
+    """거시 지표 변동에 따른 리스크 이벤트/알림 생성 로직"""
+    severity = "high" if abs(mom_change) >= 5.0 else "medium"
+    direction = "급증" if mom_change > 0 else "급감"
+    
+    # Heuristics based on series
+    affected = "전체 시장"
+    action = "포트폴리오 민감도 모니터링 강화"
+    
+    if series_id == "CPIAUCSL":
+        if mom_change > 0:
+            affected = "기술주, 성장주"
+            action = "인플레이션 헷지 자산 점검, 현금 비중 확보 고려"
+            direction = "예상치 상회/상승"
+        else:
+            action = "디스인플레이션 추세 확인, 금리 인하 수혜주(바이오, 중소형 기술주) 비중 유지"
+            direction = "하락"
+            severity = "low"
+    elif series_id in ("FEDFUNDS", "DFF") and mom_change > 0:
+        affected = "부동산 리츠, 대형 기술주"
+        action = "금리 민감도 높은 자산 비중 축소, 고배당/가치주 편입"
+    elif series_id == "UNRATE" and mom_change > 0:
+        affected = "소비재, 금융주"
+        action = "경기 방어주 위주 리밸런싱, 채권 비중 확대 검토"
+    elif series_id in ("WALCL", "M2SL", "TGA") and mom_change < 0:
+        affected = "가상화폐, 위험자산 보편"
+        action = "유동성 축소(QT) 본격화에 따른 단기 변동성 대비"
+        
+    return {
+        "alert_type": series_id,
+        "title": f"[{meta['name']}] 변동성 경고",
+        "message": f"해당 지표가 단기 {mom_change:+.2f}% {direction}했습니다. (현재: {current_value:,.2f}{meta['unit']})",
+        "severity": severity,
+        "trigger_data": f"Value: {current_value}, MoM: {mom_change:+.2f}%",
+        "affected_sectors": affected,
+        "recommended_actions": action
+    }
+
+
+def save_macro_alert(alert: dict):
+    """DB에 매크로 알림 이벤트 저장 (중복 방지 로직 포함)"""
+    db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        
+        # Check for recent identical alerts (prevent spam)
+        c.execute("SELECT id FROM macro_alerts WHERE alert_type = ? AND is_active = 1 AND created_at >= datetime('now', '-1 days')", (alert['alert_type'],))
+        if c.fetchone():
+            conn.close()
+            return
+            
+        c.execute("""
+            INSERT INTO macro_alerts 
+            (alert_type, title, message, severity, trigger_data, affected_sectors, recommended_actions)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (alert['alert_type'], alert['title'], alert['message'], alert['severity'], 
+              alert['trigger_data'], alert['affected_sectors'], alert['recommended_actions']))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error saving macro alert: {e}")
+
+
 def fetch_liquidity_data() -> List[dict]:
-    """FRED 6개 지표 패치 + MoM 변화율 계산."""
+    """FRED 6개 지표 패치 + MoM 변화율 계산 + 매크로 이벤트 감지."""
     results = []
+    macro_alerts = []
+    
     for series_id, meta in FRED_LIQUIDITY_SERIES.items():
         value, date = fetch_fred_series(series_id)
         if value is not None:
@@ -338,6 +426,12 @@ def fetch_liquidity_data() -> List[dict]:
                 "mom_change": mom_change,
             })
             
+            # Detect macro events based on MoM changes
+            if mom_change is not None and abs(mom_change) >= 3.0:  # 3% 이상 변화시 알림
+                alert = detect_macro_event(series_id, meta, scaled, mom_change, date)
+                if alert:
+                    macro_alerts.append(alert)
+            
             mom_str = f" (MoM: {mom_change:+.2f}%)" if mom_change is not None else " (MoM: N/A)"
             print(f"[FRED] {series_id}: {scaled:.2f} {meta['unit']} ({date}){mom_str}")
             
@@ -345,6 +439,11 @@ def fetch_liquidity_data() -> List[dict]:
             save_liquidity_to_db(series_id, scaled, date)
         else:
             print(f"[FRED] {series_id}: N/A")
+    
+    # Save macro alerts to database
+    for alert in macro_alerts:
+        save_macro_alert(alert)
+        
     return results
 
 
@@ -651,6 +750,90 @@ def get_latest_liquidity_analysis():
     except Exception as e:
         print(f"[DB] Error getting liquidity analysis: {e}")
         return {"error": str(e)}
+
+
+@app.get("/api/macro-alerts")
+def get_macro_alerts():
+    """최근 활성화된 거시경제 변동성 알림 반환"""
+    db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute("""
+            SELECT id, alert_type, title, message, severity, trigger_data, 
+                   affected_sectors, recommended_actions, created_at 
+            FROM macro_alerts 
+            WHERE is_active = 1
+            ORDER BY created_at DESC 
+            LIMIT 5
+        """)
+        alerts = [dict(row) for row in c.fetchall()]
+        conn.close()
+        return {"data": alerts}
+    except Exception as e:
+        print(f"[DB] Error getting macro alerts: {e}")
+        return {"error": str(e)}
+
+
+class StressTestRequest(BaseModel):
+    email: str
+
+@app.post("/api/portfolio/stress-test")
+async def portfolio_stress_test(req: StressTestRequest):
+    """사용자 포트폴리오 기반 거시경제 스트레스 테스트 및 리밸런싱 제안"""
+    try:
+        portfolio_res = get_db_portfolio(req.email)
+        items = portfolio_res.get("data", [])
+        
+        if not items:
+            return {"error": "포트폴리오 데이터가 없습니다."}
+            
+        portfolio_text = "\n".join([
+            f"- {i['ticker']}: {i['quantity']}주 (평단가: {i['average_buy_price']}, 현재가: {i['current_price']})"
+            for i in items
+        ])
+        
+        trends = get_liquidity_trends()
+        trend_context = json.dumps(trends, ensure_ascii=False) if trends else "유동성 지표 부족"
+        
+        from langchain_openai import ChatOpenAI
+        # Using structured output or standard JSON prompting
+        llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0.2,
+            api_key=os.getenv("OPENAI_API_KEY")
+        )
+        
+        prompt = f"""
+당신은 현존하는 최고 실력의 거시경제 기반 투자 자문 AI입니다.
+현재 거시경제 지표 트렌드와 아래 사용자의 포트폴리오를 매핑하여 포트폴리오 스트레스 테스트를 진행하세요.
+
+[사용자 보유 자산]
+{portfolio_text}
+
+[최근 거시경제 지표 / 유동성 트렌드 요약]
+{trend_context}
+
+다음 JSON 형태로만 응답하세요:
+{{
+  "max_drawdown_estimate": "-X.X%",
+  "risk_level": "High" | "Medium" | "Low",
+  "vulnerable_sectors": ["분석된 취약 티커/섹터 1", "유의 티커/섹터 2"],
+  "resilient_sectors": ["방어 가능한 티커/섹터"],
+  "analysis_reasoning": "왜 이런 하방 압력이 예상되는지 2~3문장 설명",
+  "rebalancing_suggestion": "구체적인 리밸런싱 조언 2~3문장"
+}}
+"""
+        response = await llm.ainvoke(prompt)
+        text_content = response.content.replace('```json', '').replace('```', '').strip()
+        result_json = json.loads(text_content)
+        
+        return {"data": result_json}
+        
+    except Exception as e:
+        print(f"[Stress Test Error] {e}")
+        return {"error": f"스트레스 테스트 중 오류가 발생했습니다: {str(e)}"}
 
 
 def get_db_portfolio(email: str = None):

@@ -95,6 +95,10 @@ export default function Home() {
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
   const [isParsingImage, setIsParsingImage] = useState(false);
   const [portfolioCurrency, setPortfolioCurrency] = useState<'USD' | 'KRW'>('USD');
+  const [macroAlerts, setMacroAlerts] = useState<any[]>([]);
+  const [isStressTesting, setIsStressTesting] = useState(false);
+  const [stressTestResult, setStressTestResult] = useState<any>(null);
+
   const mainRef = useRef<HTMLElement>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -204,6 +208,17 @@ export default function Home() {
       });
   }, [pushToast]);
 
+  const fetchMacroAlerts = useCallback(() => {
+    fetch('/api/macro-alerts')
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.data && json.data.length > 0) {
+          setMacroAlerts(json.data);
+        }
+      })
+      .catch((error) => console.error('Macro alerts fetch error:', error));
+  }, []);
+
   const fetchDbPortfolio = useCallback(() => {
     const email = session?.user?.email;
     const url = email ? `/api/portfolio?email=${encodeURIComponent(email)}` : '/api/portfolio';
@@ -228,12 +243,40 @@ export default function Home() {
       });
   }, [session?.user?.email]);
 
+  const handleMacroStressTest = async () => {
+    if (!session?.user?.email) {
+      pushToast("로그인이 필요합니다.", "warning");
+      return;
+    }
+    setIsStressTesting(true);
+    setStressTestResult(null);
+    try {
+      const res = await fetch('/api/portfolio/stress-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: session.user.email })
+      });
+      const json = await res.json();
+      if (json.data) {
+        setStressTestResult(json.data);
+      } else {
+        pushToast(json.error || "분석 실패", "warning");
+      }
+    } catch (e) {
+      pushToast("스트레스 테스트 오류", "warning");
+    } finally {
+      setIsStressTesting(false);
+    }
+  };
+
   useEffect(() => {
     fetchMarketData();
     fetchLiquidityData();
+    fetchMacroAlerts();
     if (session) fetchDbPortfolio();
     const pollInterval = setInterval(fetchMarketData, 30_000);
     const liquidityPollInterval = setInterval(fetchLiquidityData, 60 * 60_000);
+    const macroPollInterval = setInterval(fetchMacroAlerts, 60 * 60_000);
     const countdownInterval = setInterval(() => {
       setRefreshCountdown((prev) => (prev <= 1 ? 30 : prev - 1));
     }, 1_000);
@@ -776,11 +819,10 @@ export default function Home() {
                               <span className="text-[11px] font-black text-zinc-400 ml-1 shrink-0">{item.unit === '%' ? '%' : item.unit}</span>
                             </div>
                             {item.mom_change !== undefined && item.mom_change !== null && (
-                              <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md ${
-                                item.mom_change >= 0 
-                                  ? 'text-emerald-600 bg-emerald-50' 
-                                  : 'text-rose-600 bg-rose-50'
-                              }`}>
+                              <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md ${item.mom_change >= 0
+                                ? 'text-emerald-600 bg-emerald-50'
+                                : 'text-rose-600 bg-rose-50'
+                                }`}>
                                 {item.mom_change >= 0 ? '+' : ''}{item.mom_change.toFixed(1)}%
                               </div>
                             )}
@@ -953,6 +995,40 @@ export default function Home() {
                     </div>
                   )}
                 </section>
+
+                {/* ── 매크로 변동성 경보 (Macro Alerts) ── */}
+                {macroAlerts.length > 0 && (
+                  <div className="mt-12 pt-8 border-t border-zinc-100/60">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)] animate-pulse"></div>
+                        <span className="text-[11px] font-black text-zinc-900 uppercase tracking-[0.2em]">Macro Alerts</span>
+                        <span className="text-[10px] font-mono text-zinc-500 bg-zinc-100 px-1.5 py-0.5 rounded-md">{macroAlerts.length}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                      {macroAlerts.map((alert: any) => (
+                        <div key={alert.id} className="glass-panel p-5 hover-lift border-l-[3px] border-rose-400">
+                          <div className="flex items-start justify-between mb-3 gap-4">
+                            <h4 className="text-[13px] font-black text-zinc-900 leading-snug">{alert.title}</h4>
+                            <span className="text-[10px] font-mono font-bold text-zinc-400 shrink-0 bg-zinc-50 px-2 py-1 rounded-md">{new Date(alert.created_at).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}</span>
+                          </div>
+                          <p className="text-[12px] font-medium text-zinc-600 mb-4 leading-relaxed">{alert.message}</p>
+                          <div className="flex flex-col gap-2 bg-zinc-50/50 p-3 rounded-xl ring-1 ring-zinc-200/50">
+                            <div className="flex items-start gap-3">
+                              <span className="text-[10px] font-black text-rose-500 uppercase tracking-widest w-12 shrink-0 mt-0.5">Impact</span>
+                              <span className="text-[11px] font-bold text-zinc-800 leading-snug">{alert.affected_sectors}</span>
+                            </div>
+                            <div className="flex items-start gap-3">
+                              <span className="text-[10px] font-black text-emerald-600 uppercase tracking-widest w-12 shrink-0 mt-0.5">Action</span>
+                              <span className="text-[11px] font-bold text-zinc-800 leading-snug">{alert.recommended_actions}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* ── 이슈 이력 로그 ── */}
                 {issueLog.length > 0 && (
@@ -1137,15 +1213,13 @@ export default function Home() {
                         <div className="relative">
                           <button
                             onClick={() => setPortfolioCurrency(portfolioCurrency === 'USD' ? 'KRW' : 'USD')}
-                            className={`relative w-16 h-8 rounded-full transition-all duration-300 ${
-                              portfolioCurrency === 'USD' 
-                                ? 'bg-blue-500' 
-                                : 'bg-emerald-500'
-                            }`}
+                            className={`relative w-16 h-8 rounded-full transition-all duration-300 ${portfolioCurrency === 'USD'
+                              ? 'bg-blue-500'
+                              : 'bg-emerald-500'
+                              }`}
                           >
-                            <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all duration-300 flex items-center justify-center ${
-                              portfolioCurrency === 'USD' ? 'left-1' : 'left-9'
-                            }`}>
+                            <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all duration-300 flex items-center justify-center ${portfolioCurrency === 'USD' ? 'left-1' : 'left-9'
+                              }`}>
                               <span className="text-[10px] font-black">
                                 {portfolioCurrency === 'USD' ? '$' : '₩'}
                               </span>
@@ -1213,6 +1287,72 @@ export default function Home() {
                           </div>
                         </div>
 
+                        {/* ── Macro Stress Test Dashboard ── */}
+                        <div className="mb-8">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-3 px-1">
+                              <div className="w-1.5 h-1.5 rounded-full bg-rose-500 shadow-sm shadow-rose-300"></div>
+                              <h3 className="text-[13px] font-black text-zinc-900 uppercase tracking-widest">Macro Stress Test</h3>
+                            </div>
+                            <button
+                              onClick={handleMacroStressTest}
+                              disabled={isStressTesting}
+                              className="glass-button px-4 py-2 text-[11px] font-black text-zinc-700 hover:text-rose-600 uppercase tracking-widest flex items-center gap-2"
+                            >
+                              {isStressTesting ? (
+                                <>
+                                  <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+                                  Analyzing...
+                                </>
+                              ) : (
+                                <>
+                                  <span>⚡ AI 진단 실행</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+
+                          {stressTestResult && (
+                            <div className="glass-panel p-6 animate-in fade-in slide-in-from-top-2">
+                              <div className="flex flex-col md:flex-row items-start justify-between gap-6">
+                                <div className="space-y-4 flex-1">
+                                  <div>
+                                    <p className="text-[11px] font-black text-zinc-400 uppercase tracking-widest mb-1">Max Drawdown Estimate</p>
+                                    <div className="flex items-end gap-2">
+                                      <p className="text-4xl font-black text-rose-500 tracking-tight leading-none">{stressTestResult.max_drawdown_estimate}</p>
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${stressTestResult.risk_level === 'High' ? 'bg-rose-100 text-rose-700' :
+                                        stressTestResult.risk_level === 'Medium' ? 'bg-amber-100 text-amber-700' :
+                                          'bg-emerald-100 text-emerald-700'
+                                        }`}>
+                                        {stressTestResult.risk_level} RISK
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <p className="text-[11px] font-black text-zinc-400 uppercase tracking-widest">Vulnerable Sectors</p>
+                                    <div className="flex gap-2 flex-wrap">
+                                      {Array.isArray(stressTestResult.vulnerable_sectors) && stressTestResult.vulnerable_sectors.map((sec: string, i: number) => (
+                                        <span key={i} className="text-[10px] font-bold bg-rose-50 text-rose-600 px-2.5 py-1 rounded-md">{sec}</span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="hidden md:block w-px h-28 bg-gradient-to-b from-transparent via-zinc-200 to-transparent shrink-0"></div>
+                                <div className="space-y-4 flex-[1.5] w-full">
+                                  <div>
+                                    <p className="text-[11px] font-black text-zinc-400 uppercase tracking-widest mb-1">Analysis & Reasoning</p>
+                                    <p className="text-[13px] font-medium text-zinc-700 leading-relaxed">{stressTestResult.analysis_reasoning}</p>
+                                  </div>
+                                  <div className="bg-zinc-50/80 rounded-xl p-3.5 ring-1 ring-zinc-200/50 hover-lift">
+                                    <p className="text-[11px] font-black text-emerald-600 uppercase tracking-widest mb-1.5 flex items-center gap-1.5"><span className="text-sm">💡</span> Action Plan</p>
+                                    <p className="text-[12px] font-bold text-zinc-800 leading-snug">{stressTestResult.rebalancing_suggestion}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
                         <div className="flex items-center gap-3 mb-6 px-1">
                           <div className="w-1.5 h-1.5 rounded-full bg-zinc-900 shadow-sm shadow-zinc-300"></div>
                           <h3 className="text-[13px] font-black text-zinc-900 uppercase tracking-widest">Holdings Details</h3>
@@ -1238,7 +1378,7 @@ export default function Home() {
                                 const currentPrice = item.current_price || 0;
                                 const currentValue = item.quantity * currentPrice;
                                 const profitAmount = item.profit_krw || 0;
-                                
+
                                 return (
                                   <tr key={idx} className="hover:bg-zinc-50/50 transition-all group">
                                     <td className="px-6 py-4">
