@@ -599,20 +599,19 @@ def get_liquidity_trends_api():
     return {"data": trends}
 
 
+def _is_quota_error(msg: str) -> bool:
+    keywords = ["429", "quota", "resourceexhausted", "rate_limit",
+                "rate limit", "too many requests", "overloaded",
+                "credit", "billing", "insufficient_quota", "503", "demand"]
+    return any(k in msg.lower() for k in keywords)
+
+
 async def analyze_liquidity_with_llm():
-    """LLM을 사용한 유동성 트렌드 분석"""
+    """LLM을 사용한 유동성 트렌드 분석 (OpenAI → Gemini → Claude 폴백)"""
     try:
         trends = get_liquidity_trends()
         if not trends:
             return "유동성 트렌드 데이터가 부족합니다."
-        
-        # OpenAI 클라이언트 설정
-        from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0.3,
-            api_key=os.getenv("OPENAI_API_KEY")
-        )
         
         # 트렌드 데이터를 텍스트로 변환
         trend_text = []
@@ -647,9 +646,44 @@ async def analyze_liquidity_with_llm():
 
 한국어로 전문적이지만 이해하기 쉽게 작성해주세요.
 """
-        
-        response = await llm.ainvoke(analysis_prompt)
-        analysis_text = response.content
+
+        # LLM 폴백 체인: OpenAI → Gemini → Claude
+        llm_candidates = []
+        if os.getenv("OPENAI_API_KEY"):
+            llm_candidates.append(("openai", "gpt-4o-mini"))
+        if os.getenv("GOOGLE_API_KEY"):
+            llm_candidates.append(("gemini", "gemini-2.0-flash"))
+            llm_candidates.append(("gemini", "gemini-flash-lite-latest"))
+        if os.getenv("ANTHROPIC_API_KEY"):
+            llm_candidates.append(("claude", "claude-3-5-haiku-20241022"))
+
+        analysis_text = None
+        for provider, model_id in llm_candidates:
+            try:
+                if provider == "openai":
+                    llm = ChatOpenAI(model=model_id, temperature=0.3,
+                                     api_key=os.getenv("OPENAI_API_KEY"), max_retries=0)
+                elif provider == "gemini":
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    llm = ChatGoogleGenerativeAI(model=model_id, temperature=0.3,
+                                                 google_api_key=os.getenv("GOOGLE_API_KEY"),
+                                                 max_retries=0)
+                else:
+                    from langchain_anthropic import ChatAnthropic
+                    llm = ChatAnthropic(model=model_id, temperature=0.3,
+                                        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+                                        max_tokens=4096, max_retries=0)
+                response = await llm.ainvoke(analysis_prompt)
+                analysis_text = response.content
+                print(f"[LLM Liquidity] Success with {provider}/{model_id}")
+                break
+            except Exception as e:
+                print(f"[LLM Liquidity] {provider}/{model_id} failed: {e}")
+                if not _is_quota_error(str(e)):
+                    raise
+
+        if analysis_text is None:
+            return "모든 LLM 서비스가 현재 한도를 초과했습니다. 잠시 후 다시 시도해주세요."
         
         # 분석 결과를 데이터베이스에 저장
         today = datetime.now().strftime("%Y-%m-%d")
@@ -781,7 +815,7 @@ class StressTestRequest(BaseModel):
 
 @app.post("/api/portfolio/stress-test")
 async def portfolio_stress_test(req: StressTestRequest):
-    """사용자 포트폴리오 기반 거시경제 스트레스 테스트 및 리밸런싱 제안"""
+    """사용자 포트폴리오 기반 거시경제 스트레스 테스트 및 리밸런싱 제안 (다중 모델 폴백)"""
     try:
         portfolio_res = fetch_portfolio(req.email)
         items = portfolio_res.get("data", [])
@@ -796,14 +830,6 @@ async def portfolio_stress_test(req: StressTestRequest):
         
         trends = get_liquidity_trends()
         trend_context = json.dumps(trends, ensure_ascii=False) if trends else "유동성 지표 부족"
-        
-        from langchain_openai import ChatOpenAI
-        # Using structured output or standard JSON prompting
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0.2,
-            api_key=os.getenv("OPENAI_API_KEY")
-        )
         
         prompt = f"""
 당신은 현존하는 최고 실력의 거시경제 기반 투자 자문 AI입니다.
@@ -825,11 +851,58 @@ async def portfolio_stress_test(req: StressTestRequest):
   "rebalancing_suggestion": "구체적인 리밸런싱 조언 2~3문장"
 }}
 """
-        response = await llm.ainvoke(prompt)
-        text_content = response.content.replace('```json', '').replace('```', '').strip()
-        result_json = json.loads(text_content)
-        
-        return {"data": result_json}
+
+        # LLM 폴백 체인: OpenAI gpt-4o-mini → Gemini 2.0 Flash → Claude 3.5 Haiku
+        stress_llm_candidates = []
+        if os.getenv("OPENAI_API_KEY"):
+            stress_llm_candidates.append(("openai", "gpt-4o-mini"))
+        if os.getenv("GOOGLE_API_KEY"):
+            stress_llm_candidates.append(("gemini", "gemini-2.0-flash"))
+            stress_llm_candidates.append(("gemini", "gemini-flash-lite-latest"))
+        if os.getenv("ANTHROPIC_API_KEY"):
+            stress_llm_candidates.append(("claude", "claude-3-5-haiku-20241022"))
+
+        if not stress_llm_candidates:
+            return {"error": "사용 가능한 AI API 키가 없습니다. .env 파일에 OPENAI_API_KEY, GOOGLE_API_KEY 또는 ANTHROPIC_API_KEY를 추가해주세요."}
+
+        last_error = None
+        for provider, model_id in stress_llm_candidates:
+            try:
+                if provider == "openai":
+                    llm = ChatOpenAI(model=model_id, temperature=0.2,
+                                     openai_api_key=os.getenv("OPENAI_API_KEY"), max_retries=0)
+                elif provider == "gemini":
+                    from langchain_google_genai import ChatGoogleGenerativeAI
+                    llm = ChatGoogleGenerativeAI(model=model_id, temperature=0.2,
+                                                 google_api_key=os.getenv("GOOGLE_API_KEY"),
+                                                 max_retries=0)
+                else:
+                    from langchain_anthropic import ChatAnthropic
+                    llm = ChatAnthropic(model=model_id, temperature=0.2,
+                                        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+                                        max_tokens=4096, max_retries=0)
+
+                print(f"[Stress Test] Trying {provider}/{model_id}...")
+                response = await llm.ainvoke(prompt)
+                text_content = response.content.replace('```json', '').replace('```', '').strip()
+                result_json = json.loads(text_content)
+                print(f"[Stress Test] Success with {provider}/{model_id}")
+                return {"data": result_json, "model_used": f"{provider}/{model_id}"}
+
+            except json.JSONDecodeError as je:
+                print(f"[Stress Test] JSON parse error from {provider}/{model_id}: {je}")
+                last_error = str(je)
+                break  # JSON 파싱 오류는 재시도 불필요
+            except Exception as e:
+                err_msg = str(e)
+                print(f"[Stress Test] {provider}/{model_id} failed: {err_msg[:120]}")
+                last_error = err_msg
+                if _is_quota_error(err_msg):
+                    print(f"[Stress Test] Quota/rate-limit → trying next model...")
+                    continue
+                raise  # 할당량 오류가 아니면 즉시 raise
+
+        return {"error": f"모든 AI 모델이 현재 한도를 초과했습니다. 잠시 후 다시 시도해주세요. (마지막 오류: {last_error})"}
         
     except Exception as e:
         print(f"[Stress Test Error] {e}")
