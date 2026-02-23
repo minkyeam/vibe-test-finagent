@@ -17,3 +17,4 @@ pytz
 lxml
 python-multipart
 Pillow
+schedule

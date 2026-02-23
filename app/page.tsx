@@ -139,10 +139,15 @@ export default function Home() {
   }, []);
 
   const fetchMarketData = useCallback(() => {
+    console.log('Fetching market data...');
     fetch('/api/market-data')
       .then((res) => res.json())
       .then((json) => {
-        if (json.data) setData(json.data);
+        console.log('Market data received:', json);
+        if (json.data) {
+          setData(json.data);
+          console.log('Data set to state:', json.data.length, 'items');
+        }
         const now = new Date();
         const pad = (n: number) => String(n).padStart(2, '0');
         setDataFetchedAt(
@@ -150,17 +155,28 @@ export default function Home() {
         );
         setRefreshCountdown(30);
       })
-      .catch(console.error);
-  }, []);
+      .catch((error) => {
+        console.error('Market data fetch error:', error);
+        pushToast('마켓 데이터 로딩 오류', 'warning');
+      });
+  }, [pushToast]);
 
   const fetchLiquidityData = useCallback(() => {
+    console.log('Fetching liquidity data...');
     fetch('/api/liquidity')
       .then((res) => res.json())
       .then((json) => {
-        if (json.data) setLiquidityData(json.data);
+        console.log('Liquidity data received:', json);
+        if (json.data) {
+          setLiquidityData(json.data);
+          console.log('Liquidity data set to state:', json.data.length, 'items');
+        }
       })
-      .catch(console.error);
-  }, []);
+      .catch((error) => {
+        console.error('Liquidity data fetch error:', error);
+        pushToast('유동성 데이터 로딩 오류', 'warning');
+      });
+  }, [pushToast]);
 
   const fetchDbPortfolio = useCallback(() => {
     const email = session?.user?.email;

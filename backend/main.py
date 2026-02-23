@@ -21,6 +21,8 @@ from io import BytesIO
 from fastapi import File, UploadFile, Form
 from langchain_core.messages import HumanMessage
 import pandas as pd
+import threading
+import schedule
 
 # Load environment variables
 load_dotenv()
@@ -65,12 +67,13 @@ try:
 except Exception as _rag_e:
     print(f"[RAG] Load error: {_rag_e}")
 
-# ── Database Migration: Add user_email column ──
+# ── Database Migration: Add user_email column and liquidity history table ──
 def migrate_db():
     db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
     try:
         conn = sqlite3.connect(db_path)
         c = conn.cursor()
+        
         # Check if user_email column exists
         c.execute("PRAGMA table_info(portfolio)")
         columns = [info[1] for info in c.fetchall()]
@@ -78,11 +81,92 @@ def migrate_db():
             print("[DB] Migrating: Adding user_email column...")
             c.execute("ALTER TABLE portfolio ADD COLUMN user_email TEXT")
             conn.commit()
+        
+        # Create liquidity history table
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS liquidity_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                series_id TEXT NOT NULL,
+                value REAL NOT NULL,
+                date TEXT NOT NULL,
+                recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(series_id, date)
+            )
+        """)
+        
+        # Create liquidity analysis table for LLM insights
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS liquidity_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                analysis_date TEXT NOT NULL,
+                trend_summary TEXT NOT NULL,
+                key_insights TEXT NOT NULL,
+                policy_implications TEXT NOT NULL,
+                market_outlook TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(analysis_date)
+            )
+        """)
+        
+        conn.commit()
         conn.close()
+        print("[DB] Migration completed successfully")
     except Exception as e:
         print(f"[DB Migration Error] {e}")
 
 migrate_db()
+
+
+# ── Scheduled Tasks for Liquidity Analysis ──
+def scheduled_liquidity_update():
+    """스케줄된 유동성 데이터 업데이트 및 분석"""
+    print(f"[Schedule] Running liquidity update at {datetime.now()}")
+    try:
+        # 유동성 데이터 업데이트 (캐시 무시)
+        global _liquidity_cache
+        _liquidity_cache = {"data": None, "fetched_at": 0}  # 캐시 강제 리셋
+        
+        # 새 데이터 가져오기 및 DB 저장
+        liquidity_data = fetch_liquidity_data()
+        print(f"[Schedule] Updated {len(liquidity_data)} liquidity indicators")
+        
+        # LLM 분석 실행 (별도 스레드에서)
+        def run_analysis():
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(analyze_liquidity_with_llm())
+                print("[Schedule] LLM analysis completed")
+            except Exception as e:
+                print(f"[Schedule] Analysis error: {e}")
+            finally:
+                loop.close()
+        
+        analysis_thread = threading.Thread(target=run_analysis)
+        analysis_thread.start()
+        
+    except Exception as e:
+        print(f"[Schedule] Update error: {e}")
+
+
+def start_scheduler():
+    """스케줄러 시작 (하루 2회: 오전 9시, 오후 6시)"""
+    schedule.every().day.at("09:00").do(scheduled_liquidity_update)
+    schedule.every().day.at("18:00").do(scheduled_liquidity_update)
+    
+    def run_schedule():
+        while True:
+            schedule.run_pending()
+            time.sleep(60)  # 1분마다 체크
+    
+    scheduler_thread = threading.Thread(target=run_schedule, daemon=True)
+    scheduler_thread.start()
+    print("[Scheduler] Started - liquidity updates at 09:00 and 18:00")
+
+
+# 앱 시작시 스케줄러 시작
+start_scheduler()
 
 
 class MarketData(BaseModel):
@@ -249,9 +333,70 @@ def fetch_liquidity_data() -> List[dict]:
                 "desc": meta["desc"],
             })
             print(f"[FRED] {series_id}: {scaled:.2f} {meta['unit']} ({date})")
+            
+            # Save to database
+            save_liquidity_to_db(series_id, scaled, date)
         else:
             print(f"[FRED] {series_id}: N/A")
     return results
+
+
+def save_liquidity_to_db(series_id: str, value: float, date: str):
+    """유동성 데이터를 데이터베이스에 저장"""
+    db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("""
+            INSERT OR REPLACE INTO liquidity_history 
+            (series_id, value, date) VALUES (?, ?, ?)
+        """, (series_id, value, date))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[DB] Error saving liquidity data: {e}")
+
+
+def get_liquidity_trends() -> dict:
+    """12개월 유동성 트렌드 분석"""
+    db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        
+        trends = {}
+        for series_id, meta in FRED_LIQUIDITY_SERIES.items():
+            c.execute("""
+                SELECT value, date, recorded_at 
+                FROM liquidity_history 
+                WHERE series_id = ? 
+                ORDER BY date DESC 
+                LIMIT 365
+            """, (series_id,))
+            
+            data = c.fetchall()
+            if len(data) >= 2:
+                current = data[0][0]
+                prev_month = data[min(30, len(data)-1)][0] if len(data) > 30 else data[-1][0]
+                prev_3month = data[min(90, len(data)-1)][0] if len(data) > 90 else data[-1][0]
+                prev_year = data[min(365, len(data)-1)][0] if len(data) > 365 else data[-1][0]
+                
+                trends[series_id] = {
+                    "name": meta["name"],
+                    "current": current,
+                    "change_1m": ((current - prev_month) / prev_month * 100) if prev_month != 0 else 0,
+                    "change_3m": ((current - prev_3month) / prev_3month * 100) if prev_3month != 0 else 0,
+                    "change_1y": ((current - prev_year) / prev_year * 100) if prev_year != 0 else 0,
+                    "data_points": len(data),
+                    "unit": meta["unit"],
+                    "desc": meta["desc"]
+                }
+        
+        conn.close()
+        return trends
+    except Exception as e:
+        print(f"[DB] Error getting liquidity trends: {e}")
+        return {}
 
 
 def _get_cached_liquidity() -> List[dict]:
@@ -293,6 +438,166 @@ def get_liquidity_data():
     """연준/재무부 유동성 지표 반환."""
     data = _get_cached_liquidity()
     return {"data": data}
+
+
+@app.get("/api/liquidity/trends")
+def get_liquidity_trends_api():
+    """유동성 지표 트렌드 분석 반환."""
+    trends = get_liquidity_trends()
+    return {"data": trends}
+
+
+async def analyze_liquidity_with_llm():
+    """LLM을 사용한 유동성 트렌드 분석"""
+    try:
+        trends = get_liquidity_trends()
+        if not trends:
+            return "유동성 트렌드 데이터가 부족합니다."
+        
+        # OpenAI 클라이언트 설정
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0.3,
+            api_key=os.getenv("OPENAI_API_KEY")
+        )
+        
+        # 트렌드 데이터를 텍스트로 변환
+        trend_text = []
+        for series_id, data in trends.items():
+            trend_text.append(f"""
+{data['name']} ({series_id}):
+- 현재값: {data['current']:,.2f} {data['unit']}
+- 1개월 변화: {data['change_1m']:.2f}%
+- 3개월 변화: {data['change_3m']:.2f}%
+- 1년 변화: {data['change_1y']:.2f}%
+- 설명: {data['desc']}
+""")
+        
+        trends_summary = "\n".join(trend_text)
+        
+        analysis_prompt = f"""
+당신은 연준의 통화정책과 유동성 분석 전문가입니다. 
+다음 유동성 지표들의 12개월 트렌드를 분석하고, 핵심 인사이트를 제공하세요.
+
+=== 유동성 지표 트렌드 ===
+{trends_summary}
+
+다음 형식으로 분석해주세요:
+
+**트렌드 요약**: (2-3문장으로 전반적인 유동성 상황 요약)
+
+**핵심 인사이트**: (가장 중요한 3가지 발견사항을 불릿 포인트로)
+
+**정책적 시사점**: (연준 정책에 미치는 영향)
+
+**시장 전망**: (향후 3-6개월 전망)
+
+한국어로 전문적이지만 이해하기 쉽게 작성해주세요.
+"""
+        
+        response = await llm.ainvoke(analysis_prompt)
+        analysis_text = response.content
+        
+        # 분석 결과를 데이터베이스에 저장
+        today = datetime.now().strftime("%Y-%m-%d")
+        save_liquidity_analysis(today, analysis_text)
+        
+        return analysis_text
+        
+    except Exception as e:
+        print(f"[LLM Analysis Error] {e}")
+        return f"분석 중 오류가 발생했습니다: {str(e)}"
+
+
+def save_liquidity_analysis(analysis_date: str, full_analysis: str):
+    """LLM 분석 결과를 데이터베이스에 저장"""
+    try:
+        # 분석 텍스트에서 섹션별로 파싱
+        lines = full_analysis.split('\n')
+        trend_summary = ""
+        key_insights = ""
+        policy_implications = ""
+        market_outlook = ""
+        
+        current_section = ""
+        for line in lines:
+            line = line.strip()
+            if "트렌드 요약" in line:
+                current_section = "trend"
+            elif "핵심 인사이트" in line:
+                current_section = "insights"
+            elif "정책적 시사점" in line:
+                current_section = "policy"
+            elif "시장 전망" in line:
+                current_section = "outlook"
+            elif line and not line.startswith("**"):
+                if current_section == "trend":
+                    trend_summary += line + " "
+                elif current_section == "insights":
+                    key_insights += line + "\n"
+                elif current_section == "policy":
+                    policy_implications += line + " "
+                elif current_section == "outlook":
+                    market_outlook += line + " "
+        
+        db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("""
+            INSERT OR REPLACE INTO liquidity_analysis 
+            (analysis_date, trend_summary, key_insights, policy_implications, market_outlook)
+            VALUES (?, ?, ?, ?, ?)
+        """, (analysis_date, trend_summary.strip(), key_insights.strip(), 
+              policy_implications.strip(), market_outlook.strip()))
+        conn.commit()
+        conn.close()
+        print(f"[DB] Saved liquidity analysis for {analysis_date}")
+        
+    except Exception as e:
+        print(f"[DB] Error saving liquidity analysis: {e}")
+
+
+@app.post("/api/liquidity/analyze")
+async def analyze_liquidity():
+    """유동성 트렌드 LLM 분석 실행"""
+    analysis = await analyze_liquidity_with_llm()
+    return {"analysis": analysis}
+
+
+@app.get("/api/liquidity/analysis")
+def get_latest_liquidity_analysis():
+    """최신 유동성 분석 결과 반환"""
+    db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+    try:
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        c.execute("""
+            SELECT analysis_date, trend_summary, key_insights, 
+                   policy_implications, market_outlook, created_at
+            FROM liquidity_analysis 
+            ORDER BY created_at DESC 
+            LIMIT 1
+        """)
+        result = c.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                "data": {
+                    "analysis_date": result[0],
+                    "trend_summary": result[1],
+                    "key_insights": result[2],
+                    "policy_implications": result[3],
+                    "market_outlook": result[4],
+                    "created_at": result[5]
+                }
+            }
+        else:
+            return {"data": None}
+    except Exception as e:
+        print(f"[DB] Error getting liquidity analysis: {e}")
+        return {"error": str(e)}
 
 
 def get_db_portfolio(email: str = None):
@@ -556,12 +861,42 @@ async def analyze_macro(request: AnalysisRequest):
         ])
         print(f"[Market] {len(market_data)} items | [Liquidity] {len(liquidity_data)} indicators")
 
-        # 유동성 컨텍스트 문자열 조립
+        # 유동성 컨텍스트 문자열 조립 (최신 LLM 분석 포함)
         if liquidity_data:
             liquidity_context = "\n".join([
                 f"{item['name']} ({item['series']}): {item['value']:,.2f} {item['unit']}  [{item['date']}]  — {item['desc']}"
                 for item in liquidity_data
             ])
+            
+            # 최신 유동성 LLM 분석 추가
+            try:
+                db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+                conn = sqlite3.connect(db_path)
+                c = conn.cursor()
+                c.execute("""
+                    SELECT trend_summary, key_insights, policy_implications, market_outlook, created_at
+                    FROM liquidity_analysis 
+                    ORDER BY created_at DESC 
+                    LIMIT 1
+                """)
+                analysis_result = c.fetchone()
+                conn.close()
+                
+                if analysis_result:
+                    liquidity_context += f"""
+
+=== 최신 유동성 트렌드 분석 ({analysis_result[4][:10]}) ===
+트렌드 요약: {analysis_result[0]}
+핵심 인사이트: {analysis_result[1]}
+정책적 시사점: {analysis_result[2]}
+시장 전망: {analysis_result[3]}
+"""
+                else:
+                    liquidity_context += "\n\n최신 유동성 트렌드 분석이 아직 생성되지 않았습니다."
+                    
+            except Exception as e:
+                print(f"[LLM Context] Error loading liquidity analysis: {e}")
+                
         else:
             liquidity_context = "FRED 유동성 데이터를 가져오지 못했습니다."
 
