@@ -21,6 +21,7 @@ interface LiquidityItem {
   unit: string;
   date: string;
   desc: string;
+  mom_change?: number;
 }
 
 interface ChatMessage {
@@ -490,6 +491,11 @@ export default function Home() {
                         <span className="text-[11px] font-semibold text-indigo-500 font-mono">{item.series}</span>
                         <span className="text-[12px] font-bold text-zinc-700 tabular-nums font-mono">{item.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                         <span className="text-[10px] text-zinc-400">{item.unit}</span>
+                        {item.mom_change !== undefined && (
+                          <span className={`text-[10px] font-bold ${item.mom_change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                            {item.mom_change >= 0 ? '+' : ''}{item.mom_change.toFixed(1)}%
+                          </span>
+                        )}
                         <span className="text-zinc-300 pl-4">·</span>
                       </span>
                     ) : (
@@ -739,11 +745,22 @@ export default function Home() {
                             <span className="text-[11px] font-bold text-indigo-600 font-mono truncate min-w-0">{item.series}</span>
                             <span className="text-[10px] font-bold text-zinc-400 font-mono shrink-0">{item.date?.slice(0, 7)}</span>
                           </div>
-                          <div className="text-[17px] font-black text-zinc-950 tabular-nums leading-none tracking-tight">
-                            {item.value.toLocaleString(undefined, { minimumFractionDigits: item.unit === '%' ? 2 : 0, maximumFractionDigits: item.unit === '%' ? 2 : 0 })}
-                            <span className="text-[11px] font-black text-zinc-400 ml-1 shrink-0">{item.unit === '%' ? '%' : item.unit}</span>
+                          <div className="flex items-end justify-between gap-2 mb-2">
+                            <div className="text-[17px] font-black text-zinc-950 tabular-nums leading-none tracking-tight">
+                              {item.value.toLocaleString(undefined, { minimumFractionDigits: item.unit === '%' ? 2 : 0, maximumFractionDigits: item.unit === '%' ? 2 : 0 })}
+                              <span className="text-[11px] font-black text-zinc-400 ml-1 shrink-0">{item.unit === '%' ? '%' : item.unit}</span>
+                            </div>
+                            {item.mom_change !== undefined && (
+                              <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md ${
+                                item.mom_change >= 0 
+                                  ? 'text-emerald-600 bg-emerald-50' 
+                                  : 'text-rose-600 bg-rose-50'
+                              }`}>
+                                {item.mom_change >= 0 ? '+' : ''}{item.mom_change.toFixed(1)}%
+                              </div>
+                            )}
                           </div>
-                          <div className="text-[10px] font-bold text-zinc-500 mt-2 truncate max-w-full">{item.name}</div>
+                          <div className="text-[10px] font-bold text-zinc-500 truncate max-w-full">{item.name}</div>
                         </div>
                       ))}
                     </div>

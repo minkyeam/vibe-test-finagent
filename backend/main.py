@@ -318,12 +318,16 @@ def fetch_fred_series(series_id: str):
 
 
 def fetch_liquidity_data() -> List[dict]:
-    """FRED 6개 지표 패치 효치."""
+    """FRED 6개 지표 패치 + MoM 변화율 계산."""
     results = []
     for series_id, meta in FRED_LIQUIDITY_SERIES.items():
         value, date = fetch_fred_series(series_id)
         if value is not None:
             scaled = value * meta["scale"]
+            
+            # Calculate MoM change
+            mom_change = calculate_mom_change(series_id, scaled, date)
+            
             results.append({
                 "series": series_id,
                 "name": meta["name"],
@@ -331,14 +335,48 @@ def fetch_liquidity_data() -> List[dict]:
                 "unit": meta["unit"],
                 "date": date,
                 "desc": meta["desc"],
+                "mom_change": mom_change,
             })
-            print(f"[FRED] {series_id}: {scaled:.2f} {meta['unit']} ({date})")
+            
+            mom_str = f" (MoM: {mom_change:+.2f}%)" if mom_change is not None else " (MoM: N/A)"
+            print(f"[FRED] {series_id}: {scaled:.2f} {meta['unit']} ({date}){mom_str}")
             
             # Save to database
             save_liquidity_to_db(series_id, scaled, date)
         else:
             print(f"[FRED] {series_id}: N/A")
     return results
+
+
+def calculate_mom_change(series_id: str, current_value: float, current_date: str) -> Optional[float]:
+    """지난 달 대비 변화율 계산"""
+    try:
+        db_path = os.path.join(os.path.dirname(__file__), "portfolio.db")
+        conn = sqlite3.connect(db_path)
+        c = conn.cursor()
+        
+        # Get last month's data (30 days ago)
+        c.execute("""
+            SELECT value 
+            FROM liquidity_history 
+            WHERE series_id = ? AND date < ?
+            ORDER BY date DESC 
+            LIMIT 1 OFFSET 29
+        """, (series_id, current_date))
+        
+        result = c.fetchone()
+        conn.close()
+        
+        if result and result[0] != 0:
+            prev_value = result[0]
+            mom_change = ((current_value - prev_value) / prev_value) * 100
+            return round(mom_change, 2)
+        else:
+            return None
+            
+    except Exception as e:
+        print(f"[MoM] Error calculating change for {series_id}: {e}")
+        return None
 
 
 def save_liquidity_to_db(series_id: str, value: float, date: str):
