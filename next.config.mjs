@@ -6,8 +6,8 @@ const nextConfig = {
         return [
             // Exclude /api/auth from being proxied to the python backend
             {
-                source: '/api/((?!auth).*)',
-                destination: `${BACKEND_URL}/api/:1`,
+                source: '/api/:path((?!auth).*)',
+                destination: `${BACKEND_URL}/api/:path`,
             },
             {
                 source: '/docs',

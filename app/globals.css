@@ -2,40 +2,243 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #09090b;
+  --accent: #10b981;
+
+  /* Glass system - improved hierarchy */
+  --glass-1: rgba(255, 255, 255, 0.95);
+  /* Primary surfaces: modals, main panels */
+  --glass-2: rgba(255, 255, 255, 0.85);
+  /* Secondary surfaces: cards, containers */
+  --glass-3: rgba(255, 255, 255, 0.75);
+  /* Tertiary surfaces: inner elements */
+  --glass-4: rgba(255, 255, 255, 0.65);
+  /* Subtle backgrounds */
+  
+  --glass-border-strong: rgba(255, 255, 255, 0.95);
+  --glass-border: rgba(255, 255, 255, 0.8);
+  --glass-border-subtle: rgba(255, 255, 255, 0.6);
+  --glass-border-light: rgba(255, 255, 255, 0.4);
+
+  --shadow-glass: 0 8px 32px rgba(0, 0, 0, 0.06), 0 2px 12px rgba(0, 0, 0, 0.03);
+  --shadow-glass-elevated: 0 20px 60px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.04);
+  --shadow-glass-floating: 0 32px 80px rgba(0, 0, 0, 0.12), 0 12px 32px rgba(0, 0, 0, 0.06);
+  --inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.98);
+  --inset-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
 @theme inline {
-  --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: 'Goldman Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-serif: 'Goldman Sans', ui-serif, system-ui, serif;
+  --color-accent: var(--accent);
+  --font-sans: 'Pretendard', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Goldman Sans', ui-monospace, system-ui, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 * {
-  font-family: 'Goldman Sans', 'Pretendard', sans-serif !important;
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: 'Goldman Sans', 'Pretendard', sans-serif !important;
-  font-weight: 450;
+  box-sizing: border-box;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+body {
+  /* Fallback only — gradient lives on root div in page.tsx */
+  background: #f2f5fb;
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* ── Glass Layer 1: Premium — modals, main surfaces ── */
+.premium-glass {
+  background: var(--glass-1);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 0 0 1px var(--glass-border-strong), var(--shadow-glass-floating), var(--inset-highlight);
+  border-radius: 16px;
+}
+
+/* ── Glass Layer 2: Standard — primary cards, panels ── */
+.glass-card {
+  background: var(--glass-2);
+  backdrop-filter: blur(18px) saturate(170%);
+  -webkit-backdrop-filter: blur(18px) saturate(170%);
+  box-shadow: 0 0 0 1px var(--glass-border), var(--shadow-glass-elevated), var(--inset-highlight);
+  border-radius: 12px;
+}
+
+/* ── Glass Layer 3: Secondary — containers, groups ── */
+.glass-container {
+  background: var(--glass-3);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: 0 0 0 1px var(--glass-border-subtle), var(--shadow-glass), var(--inset-highlight);
+  border-radius: 10px;
+}
+
+/* ── Glass Layer 4: Sidebar — floating navigation ── */
+.glass-sidebar {
+  background: var(--glass-1);
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  box-shadow: 0 0 0 1px var(--glass-border-strong), var(--shadow-glass-floating), var(--inset-highlight);
+  border-radius: 16px;
+}
+
+/* ── Glass Layer 5: Inner — subtle backgrounds ── */
+.glass-inner {
+  background: var(--glass-4);
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+  box-shadow: 0 0 0 1px var(--glass-border-light), var(--inset-shadow);
+  border-radius: 8px;
+}
+
+/* ── Interactive Glass Elements ── */
+.glass-button {
+  background: var(--glass-3);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+  box-shadow: 0 0 0 1px var(--glass-border), var(--shadow-glass), var(--inset-highlight);
+  border-radius: 10px;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-button:hover {
+  background: var(--glass-2);
+  box-shadow: 0 0 0 1px var(--glass-border), var(--shadow-glass-elevated), var(--inset-highlight);
+  transform: translateY(-1px);
+}
+
+.glass-button:active {
+  transform: translateY(0px) scale(0.98);
+  box-shadow: 0 0 0 1px var(--glass-border), var(--shadow-glass), var(--inset-shadow);
+}
+
 strong,
 b {
-  font-weight: 700 !important;
-  color: #000 !important;
+  font-weight: 700;
+}
+
+@keyframes float {
+
+  0%,
+  100% {
+    transform: translateY(0px);
+  }
+
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* ── Slim scrollbar (Apple-style) ── */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.12);
+  border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+/* ── Enhanced Visual Effects ── */
+.fade-in {
+  animation: fadeInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cursor-blink {
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ── Enhanced Glass Surfaces ── */
+.glass-header {
+  background: linear-gradient(135deg, var(--glass-1) 0%, var(--glass-2) 100%);
+  backdrop-filter: blur(32px) saturate(200%);
+  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  box-shadow: 
+    0 0 0 1px var(--glass-border-strong), 
+    var(--shadow-glass-floating), 
+    var(--inset-highlight),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.05);
+  border-radius: 16px;
+}
+
+.glass-panel {
+  background: var(--glass-2);
+  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  box-shadow: 
+    0 0 0 1px var(--glass-border), 
+    var(--shadow-glass-elevated), 
+    var(--inset-highlight);
+  border-radius: 14px;
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.8) 50%, transparent 100%);
+  pointer-events: none;
+}
+
+/* ── Micro-interactions ── */
+.hover-lift {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-lift:hover {
+  transform: translateY(-1px);
+  box-shadow: 
+    0 0 0 1px var(--glass-border), 
+    var(--shadow-glass-floating), 
+    var(--inset-highlight);
+}
+
+.active-press:active {
+  transform: translateY(0) scale(0.98);
+  transition: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
 }

@@ -20,6 +20,7 @@ import base64
 from io import BytesIO
 from fastapi import File, UploadFile, Form
 from langchain_core.messages import HumanMessage
+import pandas as pd
 
 # Load environment variables
 load_dotenv()
@@ -115,18 +116,27 @@ def fetch_market_data_internal():
     signals = []
 
     try:
-        # yf.download에 세션 전달 및 벌크 패치 (5일치로 늘려서 휴장일 대비)
+        # yf.download에 벌크 패치 (5일치로 늘려서 휴장일 대비)
         ticker_list = list(symbols.keys())
         df = yf.download(ticker_list, period="5d", interval="1d", group_by='ticker')
         
+        if df.empty:
+            print("[Market] Warning: yf.download returned empty dataframe.")
+            return {"data": [], "signals": ["Market data service temporarily unavailable"]}
+            
         today_date = datetime.now(pytz.timezone('Asia/Seoul')).date()
         
         for symbol, name in symbols.items():
             try:
-                if symbol not in df.columns.levels[0]: continue
-                
-                # NaN 값을 지우고 유효한 데이터만 남김
-                hist = df[symbol].dropna(subset=['Close'])
+                # 데이터프레임 구조 확인 (싱글 티커인 경우와 멀티 티커인 경우가 다를 수 있음)
+                if isinstance(df.columns, pd.MultiIndex):
+                    if symbol not in df.columns.levels[0]: continue
+                    hist = df[symbol].dropna(subset=['Close'])
+                else:
+                    # 싱글 티커 결과인 경우
+                    hist = df.dropna(subset=['Close'])
+                    if symbol not in ticker_list: continue
+
                 if hist.empty or len(hist) < 1: continue
                 
                 import math
@@ -358,14 +368,6 @@ async def parse_portfolio_image(file: UploadFile = File(...)):
         content = await file.read()
         image_base64 = base64.b64encode(content).decode("utf-8")
         
-        # Use Gemini 2.0 Flash for vision
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-2.0-flash",
-            google_api_key=os.getenv("GOOGLE_API_KEY"),
-            temperature=0,
-        )
-        
         prompt = """보여지는 이미지(주식/금융 자산 잔고 화면)에서 보유 자산 목록을 추출해줘.
 결과는 반드시 다음과 같은 JSON 형식의 리스트로만 응답해:
 [
@@ -386,14 +388,55 @@ async def parse_portfolio_image(file: UploadFile = File(...)):
                 },
             ]
         )
+
+        from langchain_google_genai import ChatGoogleGenerativeAI
         
-        response = llm.invoke([message])
-        content_str = response.content.replace("```json", "").replace("```", "").strip()
-        parsed_data = json.loads(content_str)
+        models_to_try = ["gemini-2.0-flash", "gemini-flash-lite-latest", "gemini-flash-latest"]
+        content_str = ""
+        
+        for model_id in models_to_try:
+            try:
+                print(f"[Parse Image] Trying model: {model_id}")
+                llm = ChatGoogleGenerativeAI(
+                    model=model_id,
+                    google_api_key=os.getenv("GOOGLE_API_KEY"),
+                    temperature=0,
+                    max_retries=0,
+                )
+                response = llm.invoke([message])
+                print(f"[Parse Image] Raw Response from {model_id}: {response.content}")
+                content_str = response.content.strip()
+                break # 성공 시 루프 중단
+            except Exception as e:
+                err_msg = str(e).lower()
+                if ("429" in err_msg or "quota" in err_msg) and model_id != models_to_try[-1]:
+                    print(f"[Parse Image] {model_id} quota exceeded, trying fallback...")
+                    continue
+                raise e # 마지막 모델까지 실패하거나 다른 에러면 raise
+        
+        # JSON 블록 추출 시도
+        if "```json" in content_str:
+            content_str = content_str.split("```json")[1].split("```")[0].strip()
+        elif "```" in content_str:
+            content_str = content_str.split("```")[1].split("```")[0].strip()
+            
+        # 대괄호([]) 사이의 내용만 추출하여 순수 JSON 시도
+        import re
+        json_match = re.search(r'\[.*\]', content_str, re.DOTALL)
+        if json_match:
+            content_str = json_match.group(0)
+            
+        try:
+            parsed_data = json.loads(content_str)
+        except json.JSONDecodeError as je:
+            print(f"[JSON Parse Error] Content: {content_str}")
+            return {"status": "error", "message": f"데이터 형식 오류: {str(je)}"}
         
         return {"data": parsed_data}
     except Exception as e:
         print(f"[Parse Image Error] {e}")
+        import traceback
+        traceback.print_exc()
         return {"status": "error", "message": str(e)}
 
 class AnalysisRequest(BaseModel):
@@ -420,8 +463,9 @@ async def analyze_macro(request: AnalysisRequest):
     # Claude: 3.5-sonnet → 3.5-haiku
 
     GEMINI_MODELS = [
-        ("gemini-2.0-flash",        "Google Gemini 2.0 Flash"),
-        ("gemini-flash-lite-latest", "Google Gemini Flash Lite (Fallback)"),
+        ("gemini-2.0-flash",           "Google Gemini 2.0 Flash"),
+        ("gemini-flash-lite-latest",   "Google Gemini Flash Lite (Fallback)"),
+        ("gemini-flash-latest",        "Google Gemini Flash (Fallback)"),
     ]
     GPT_MODELS = [
         ("gpt-4o",                 "OpenAI GPT-4o"),
