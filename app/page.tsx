@@ -94,6 +94,7 @@ export default function Home() {
   const [portfolioModalSubView, setPortfolioModalSubView] = useState<'list' | 'edit'>('list');
   const [portfolioItems, setPortfolioItems] = useState<PortfolioItem[]>([]);
   const [isParsingImage, setIsParsingImage] = useState(false);
+  const [portfolioCurrency, setPortfolioCurrency] = useState<'USD' | 'KRW'>('USD');
   const mainRef = useRef<HTMLElement>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -103,6 +104,30 @@ export default function Home() {
   const [refreshCountdown, setRefreshCountdown] = useState<number>(30);
   const toastIdCounter = useRef(0);
   const { data: session, status } = useSession();
+
+  // ── Get USD/KRW exchange rate from market data ──
+  const usdKrwRate = useMemo(() => {
+    const usdKrwItem = data.find(item => item.symbol === 'KRW=X');
+    return usdKrwItem?.price || 1440; // fallback to approximate rate
+  }, [data]);
+
+  // ── Currency conversion helpers ──
+  const convertCurrency = useCallback((amount: number, fromUSD: boolean = true) => {
+    if (portfolioCurrency === 'USD') {
+      return fromUSD ? amount : amount / usdKrwRate;
+    } else {
+      return fromUSD ? amount * usdKrwRate : amount;
+    }
+  }, [portfolioCurrency, usdKrwRate]);
+
+  const formatCurrency = useCallback((amount: number, fromUSD: boolean = true) => {
+    const convertedAmount = convertCurrency(amount, fromUSD);
+    if (portfolioCurrency === 'USD') {
+      return `$${convertedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    } else {
+      return `₩${Math.round(convertedAmount).toLocaleString()}`;
+    }
+  }, [convertCurrency, portfolioCurrency]);
 
   // ── Group history by date (Apple Notes style) ──
   const groupedHistory = useMemo(() => {
@@ -1104,12 +1129,41 @@ export default function Home() {
                       {portfolioModalSubView === 'list' ? '자산 배분 및 수익 현황을 확인하세요.' : '자산을 자동으로 인식하거나 수동으로 관리하세요.'}
                     </p>
                   </div>
-                  <button
-                    onClick={() => setIsMyPortfolioModalOpen(false)}
-                    className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-zinc-50 transition-colors text-zinc-300 hover:text-zinc-900 text-xl overflow-hidden"
-                  >
-                    ✕
-                  </button>
+                  <div className="flex items-center gap-4">
+                    {/* Currency Toggle */}
+                    {portfolioModalSubView === 'list' && portfolioItems.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[12px] font-medium text-zinc-500">표시 통화</span>
+                        <div className="relative">
+                          <button
+                            onClick={() => setPortfolioCurrency(portfolioCurrency === 'USD' ? 'KRW' : 'USD')}
+                            className={`relative w-16 h-8 rounded-full transition-all duration-300 ${
+                              portfolioCurrency === 'USD' 
+                                ? 'bg-blue-500' 
+                                : 'bg-emerald-500'
+                            }`}
+                          >
+                            <div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all duration-300 flex items-center justify-center ${
+                              portfolioCurrency === 'USD' ? 'left-1' : 'left-9'
+                            }`}>
+                              <span className="text-[10px] font-black">
+                                {portfolioCurrency === 'USD' ? '$' : '₩'}
+                              </span>
+                            </div>
+                          </button>
+                        </div>
+                        <span className="text-[11px] font-mono text-zinc-400">
+                          {portfolioCurrency === 'USD' ? 'USD' : 'KRW'}
+                        </span>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => setIsMyPortfolioModalOpen(false)}
+                      className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-zinc-50 transition-colors text-zinc-300 hover:text-zinc-900 text-xl overflow-hidden"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
 
                 {/* Content Area */}
@@ -1140,9 +1194,9 @@ export default function Home() {
                             <p className="text-[11px] font-black text-zinc-500 uppercase tracking-[0.1em] mb-2">Total Evaluation</p>
                             <div className="flex items-baseline gap-2">
                               <span className="text-4xl font-black tracking-tight">
-                                ${portfolioItems.reduce((acc, i) => acc + (i.quantity * (i.current_price || 0)), 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                                {formatCurrency(portfolioItems.reduce((acc, i) => acc + (i.quantity * (i.current_price || 0)), 0)).replace(/[$₩]/, '')}
                               </span>
-                              <span className="text-xs font-bold text-zinc-600 uppercase">Equiv USD</span>
+                              <span className="text-xs font-bold text-zinc-600 uppercase">{portfolioCurrency}</span>
                             </div>
                           </div>
 
@@ -1152,9 +1206,9 @@ export default function Home() {
                             <div className="flex items-baseline gap-2">
                               <span className={`text-4xl font-black tracking-tight ${portfolioItems.reduce((acc, i) => acc + (i.profit_krw || 0), 0) >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                                 {portfolioItems.reduce((acc, i) => acc + (i.profit_krw || 0), 0) >= 0 ? '+' : ''}
-                                {portfolioItems.reduce((acc, i) => acc + (i.profit_krw || 0), 0).toLocaleString()}
+                                {formatCurrency(portfolioItems.reduce((acc, i) => acc + (i.profit_krw || 0), 0), false).replace(/[$₩]/, '')}
                               </span>
-                              <span className="text-xs font-bold text-zinc-900 uppercase">KRW</span>
+                              <span className="text-xs font-bold text-zinc-900 uppercase">{portfolioCurrency}</span>
                             </div>
                           </div>
                         </div>
@@ -1180,9 +1234,11 @@ export default function Home() {
                             </thead>
                             <tbody className="divide-y divide-zinc-50">
                               {portfolioItems.map((item, idx) => {
-                                const currentValue = item.quantity * (item.current_price || 0);
                                 const isKrx = /^\d+/.test(item.ticker);
-                                const currency = isKrx ? '₩' : '$';
+                                const currentPrice = item.current_price || 0;
+                                const currentValue = item.quantity * currentPrice;
+                                const profitAmount = item.profit_krw || 0;
+                                
                                 return (
                                   <tr key={idx} className="hover:bg-zinc-50/50 transition-all group">
                                     <td className="px-6 py-4">
@@ -1198,14 +1254,19 @@ export default function Home() {
                                       <span className="text-[13px] font-bold text-zinc-600 font-mono">{item.quantity.toLocaleString(undefined, { maximumFractionDigits: 3 })}</span>
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                      <span className="text-[13px] font-bold text-zinc-400 font-mono">{currency}{(item.current_price || 0).toLocaleString()}</span>
+                                      <span className="text-[13px] font-bold text-zinc-400 font-mono">
+                                        {formatCurrency(currentPrice, !isKrx)}
+                                      </span>
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                      <span className="text-[13px] font-black text-zinc-900 font-mono">{currency}{currentValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                                      <span className="text-[13px] font-black text-zinc-900 font-mono">
+                                        {formatCurrency(currentValue, !isKrx)}
+                                      </span>
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                      <span className={`text-[11px] font-black px-3 py-1.5 rounded-full inline-block ${item.profit_krw >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-                                        {item.profit_krw >= 0 ? '+' : ''}{item.profit_krw?.toLocaleString()}원
+                                      <span className={`text-[11px] font-black px-3 py-1.5 rounded-full inline-block ${profitAmount >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
+                                        {profitAmount >= 0 ? '+' : ''}
+                                        {formatCurrency(profitAmount, false)}
                                       </span>
                                     </td>
                                   </tr>
