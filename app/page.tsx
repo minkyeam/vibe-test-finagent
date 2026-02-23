@@ -516,7 +516,7 @@ export default function Home() {
                         <span className="text-[11px] font-semibold text-indigo-500 font-mono">{item.series}</span>
                         <span className="text-[12px] font-bold text-zinc-700 tabular-nums font-mono">{item.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                         <span className="text-[10px] text-zinc-400">{item.unit}</span>
-                        {item.mom_change !== undefined && (
+                        {item.mom_change !== undefined && item.mom_change !== null && (
                           <span className={`text-[10px] font-bold ${item.mom_change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
                             {item.mom_change >= 0 ? '+' : ''}{item.mom_change.toFixed(1)}%
                           </span>
@@ -775,7 +775,7 @@ export default function Home() {
                               {item.value.toLocaleString(undefined, { minimumFractionDigits: item.unit === '%' ? 2 : 0, maximumFractionDigits: item.unit === '%' ? 2 : 0 })}
                               <span className="text-[11px] font-black text-zinc-400 ml-1 shrink-0">{item.unit === '%' ? '%' : item.unit}</span>
                             </div>
-                            {item.mom_change !== undefined && (
+                            {item.mom_change !== undefined && item.mom_change !== null && (
                               <div className={`text-[11px] font-bold px-1.5 py-0.5 rounded-md ${
                                 item.mom_change >= 0 
                                   ? 'text-emerald-600 bg-emerald-50' 
